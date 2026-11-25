@@ -1,0 +1,94 @@
+name: edidada CI (MiniOB)
+
+on:
+  push:
+    branches:
+      - edidada/main
+  workflow_dispatch:
+
+jobs:
+  build-and-test:
+    name: build + unit tests + primary cases
+    runs-on: ubuntu-22.04
+    timeout-minutes: 60
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Install dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y clang-15 lld-15 cmake ninja-build \
+            libevent-dev libjsoncpp-dev libgtest-dev python3
+
+      - name: Configure
+        run: |
+          cmake -B build -G Ninja \
+            -DCMAKE_BUILD_TYPE=Release \
+            -DCMAKE_C_COMPILER=clang-15 \
+            -DCMAKE_CXX_COMPILER=clang++-15 \
+            -DWITH_UNIT_TESTS=ON
+
+      - name: Build
+        run: cmake --build build -j"$(nproc)"
+
+      - name: Show build artifacts
+        run: ls -l build/bin
+
+      - name: Unit tests
+        run: ctest --test-dir build --output-on-failure -j4
+
+      - name: "Case: basic"
+        run: python3 test/case/miniob_test.py --test-case-dir=test/case/test --test-result-dir=test/case/result --test-case-scores=test/case/case-scores.json --db-base-dir="$GITHUB_WORKSPACE/build" --db-config="$GITHUB_WORKSPACE/etc/observer.ini" --db-data-dir=data_basic --use-unix-socket --log=stdout --test-cases=basic
+
+      - name: "Case: primary-select-tables"
+        run: python3 test/case/miniob_test.py --test-case-dir=test/case/test --test-result-dir=test/case/result --test-case-scores=test/case/case-scores.json --db-base-dir="$GITHUB_WORKSPACE/build" --db-config="$GITHUB_WORKSPACE/etc/observer.ini" --db-data-dir=data_sel_tables --use-unix-socket --log=stdout --test-cases=primary-select-tables
+
+      - name: "Case: primary-select-meta"
+        run: python3 test/case/miniob_test.py --test-case-dir=test/case/test --test-result-dir=test/case/result --test-case-scores=test/case/case-scores.json --db-base-dir="$GITHUB_WORKSPACE/build" --db-config="$GITHUB_WORKSPACE/etc/observer.ini" --db-data-dir=data_sel_meta --use-unix-socket --log=stdout --test-cases=primary-select-meta
+
+      - name: "Case: primary-insert"
+        run: python3 test/case/miniob_test.py --test-case-dir=test/case/test --test-result-dir=test/case/result --test-case-scores=test/case/case-scores.json --db-base-dir="$GITHUB_WORKSPACE/build" --db-config="$GITHUB_WORKSPACE/etc/observer.ini" --db-data-dir=data_insert --use-unix-socket --log=stdout --test-cases=primary-insert
+
+      - name: "Case: primary-update"
+        run: python3 test/case/miniob_test.py --test-case-dir=test/case/test --test-result-dir=test/case/result --test-case-scores=test/case/case-scores.json --db-base-dir="$GITHUB_WORKSPACE/build" --db-config="$GITHUB_WORKSPACE/etc/observer.ini" --db-data-dir=data_update --use-unix-socket --log=stdout --test-cases=primary-update
+
+      - name: "Case: primary-date"
+        run: python3 test/case/miniob_test.py --test-case-dir=test/case/test --test-result-dir=test/case/result --test-case-scores=test/case/case-scores.json --db-base-dir="$GITHUB_WORKSPACE/build" --db-config="$GITHUB_WORKSPACE/etc/observer.ini" --db-data-dir=data_date --use-unix-socket --log=stdout --test-cases=primary-date
+
+      - name: "Case: primary-aggregation-func"
+        run: python3 test/case/miniob_test.py --test-case-dir=test/case/test --test-result-dir=test/case/result --test-case-scores=test/case/case-scores.json --db-base-dir="$GITHUB_WORKSPACE/build" --db-config="$GITHUB_WORKSPACE/etc/observer.ini" --db-data-dir=data_agg --use-unix-socket --log=stdout --test-cases=primary-aggregation-func
+
+      - name: "Case: primary-drop-table"
+        run: python3 test/case/miniob_test.py --test-case-dir=test/case/test --test-result-dir=test/case/result --test-case-scores=test/case/case-scores.json --db-base-dir="$GITHUB_WORKSPACE/build" --db-config="$GITHUB_WORKSPACE/etc/observer.ini" --db-data-dir=data_drop --use-unix-socket --log=stdout --test-cases=primary-drop-table
+
+      - name: "Case: primary-null"
+        run: python3 test/case/miniob_test.py --test-case-dir=test/case/test --test-result-dir=test/case/result --test-case-scores=test/case/case-scores.json --db-base-dir="$GITHUB_WORKSPACE/build" --db-config="$GITHUB_WORKSPACE/etc/observer.ini" --db-data-dir=data_null --use-unix-socket --log=stdout --test-cases=primary-null
+
+      - name: "Case: primary-unique"
+        run: python3 test/case/miniob_test.py --test-case-dir=test/case/test --test-result-dir=test/case/result --test-case-scores=test/case/case-scores.json --db-base-dir="$GITHUB_WORKSPACE/build" --db-config="$GITHUB_WORKSPACE/etc/observer.ini" --db-data-dir=data_unique --use-unix-socket --log=stdout --test-cases=primary-unique
+
+      - name: "Case: primary-multi-index"
+        run: python3 test/case/miniob_test.py --test-case-dir=test/case/test --test-result-dir=test/case/result --test-case-scores=test/case/case-scores.json --db-base-dir="$GITHUB_WORKSPACE/build" --db-config="$GITHUB_WORKSPACE/etc/observer.ini" --db-data-dir=data_multi_index --use-unix-socket --log=stdout --test-cases=primary-multi-index
+
+      - name: "Case: primary-text"
+        run: python3 test/case/miniob_test.py --test-case-dir=test/case/test --test-result-dir=test/case/result --test-case-scores=test/case/case-scores.json --db-base-dir="$GITHUB_WORKSPACE/build" --db-config="$GITHUB_WORKSPACE/etc/observer.ini" --db-data-dir=data_text --use-unix-socket --log=stdout --test-cases=primary-text
+
+      - name: "Case: primary-expression"
+        run: python3 test/case/miniob_test.py --test-case-dir=test/case/test --test-result-dir=test/case/result --test-case-scores=test/case/case-scores.json --db-base-dir="$GITHUB_WORKSPACE/build" --db-config="$GITHUB_WORKSPACE/etc/observer.ini" --db-data-dir=data_expr --use-unix-socket --log=stdout --test-cases=primary-expression
+
+      - name: "Case: primary-order-by"
+        run: python3 test/case/miniob_test.py --test-case-dir=test/case/test --test-result-dir=test/case/result --test-case-scores=test/case/case-scores.json --db-base-dir="$GITHUB_WORKSPACE/build" --db-config="$GITHUB_WORKSPACE/etc/observer.ini" --db-data-dir=data_orderby --use-unix-socket --log=stdout --test-cases=primary-order-by
+
+      - name: "Case: primary-group-by"
+        run: python3 test/case/miniob_test.py --test-case-dir=test/case/test --test-result-dir=test/case/result --test-case-scores=test/case/case-scores.json --db-base-dir="$GITHUB_WORKSPACE/build" --db-config="$GITHUB_WORKSPACE/etc/observer.ini" --db-data-dir=data_groupby --use-unix-socket --log=stdout --test-cases=primary-group-by
+
+      - name: "Case: primary-join-tables"
+        run: python3 test/case/miniob_test.py --test-case-dir=test/case/test --test-result-dir=test/case/result --test-case-scores=test/case/case-scores.json --db-base-dir="$GITHUB_WORKSPACE/build" --db-config="$GITHUB_WORKSPACE/etc/observer.ini" --db-data-dir=data_join --use-unix-socket --log=stdout --test-cases=primary-join-tables
+
+      - name: "Case: primary-simple-sub-query"
+        run: python3 test/case/miniob_test.py --test-case-dir=test/case/test --test-result-dir=test/case/result --test-case-scores=test/case/case-scores.json --db-base-dir="$GITHUB_WORKSPACE/build" --db-config="$GITHUB_WORKSPACE/etc/observer.ini" --db-data-dir=data_subq1 --use-unix-socket --log=stdout --test-cases=primary-simple-sub-query
+
+      - name: "Case: primary-complex-sub-query"
+        run: python3 test/case/miniob_test.py --test-case-dir=test/case/test --test-result-dir=test/case/result --test-case-scores=test/case/case-scores.json --db-base-dir="$GITHUB_WORKSPACE/build" --db-config="$GITHUB_WORKSPACE/etc/observer.ini" --db-data-dir=data_subq2 --use-unix-socket --log=stdout --test-cases=primary-complex-sub-query
