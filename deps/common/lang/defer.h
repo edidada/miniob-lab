@@ -21,16 +21,26 @@ namespace common {
 class DeferHelper
 {
 public: 
-  DeferHelper(const std::function<void()> &defer) : defer_(defer)
+  explicit DeferHelper(std::function<void()> defer) : defer_(std::move(defer))
   {}
 
-  ~DeferHelper()
+  DeferHelper(const DeferHelper &) = delete;
+  DeferHelper &operator=(const DeferHelper &) = delete;
+
+  ~DeferHelper() noexcept
   {
-    defer_();
+    if (!defer_) {
+      return;
+    }
+    try {
+      defer_();
+    } catch (...) {
+      // a scope guard must never let an exception escape a destructor
+    }
   }
 
 private:
-  const std::function<void()> &defer_;
+  std::function<void()> defer_;
 };
 
 } // namespace common
