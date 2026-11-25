@@ -255,12 +255,11 @@ void Server::accept(int fd, short ev, void *arg)
   snprintf(client_context->addr, sizeof(client_context->addr), "%s", addr_str.c_str());
   pthread_mutex_init(&client_context->mutex, nullptr);
 
-  event_set(&client_context->read_event, client_context->fd, EV_READ | EV_PERSIST, recv, client_context);
-
-  ret = event_base_set(instance->event_base_, &client_context->read_event);
+  ret = event_assign(&client_context->read_event, instance->event_base_, client_context->fd, EV_READ | EV_PERSIST,
+      recv, client_context);
   if (ret < 0) {
     LOG_ERROR(
-        "Failed to do event_base_set for read event of %s into libevent, %s", client_context->addr, strerror(errno));
+        "Failed to do event_assign for read event of %s into libevent, %s", client_context->addr, strerror(errno));
     delete client_context;
     ::close(instance->server_socket_);
     return;

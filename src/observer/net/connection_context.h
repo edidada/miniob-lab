@@ -15,7 +15,7 @@ See the Mulan PSL v2 for more details. */
 #ifndef __SRC_OBSERVER_NET_CONNECTION_CONTEXT_H__
 #define __SRC_OBSERVER_NET_CONNECTION_CONTEXT_H__
 
-#include <event.h>
+#include <event2/event.h>
 #include <ini_setting.h>
 
 class Session;
