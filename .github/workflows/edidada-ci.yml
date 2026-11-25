@@ -56,7 +56,9 @@ jobs:
         uses: actions/upload-artifact@v4
         with:
           name: observer
-          path: build/bin
+          path: |
+            build/bin
+            build/lib
           retention-days: 3
 
   cases:
@@ -95,7 +97,7 @@ jobs:
         uses: actions/download-artifact@v4
         with:
           name: observer
-          path: build/bin
+          path: build
 
       - name: Install runtime libs
         run: sudo apt-get update && sudo apt-get install -y python3 libevent-dev libjsoncpp-dev
@@ -111,6 +113,8 @@ jobs:
           timeout 5 "$GITHUB_WORKSPACE/build/bin/observer" -f "$GITHUB_WORKSPACE/etc/observer.ini" -s /tmp/dbg.sock; echo "observer exit=$?"
 
       - name: Run case
+        env:
+          LD_LIBRARY_PATH: ${{ github.workspace }}/build/lib
         run: |
           set -o pipefail
           python3 test/case/miniob_test.py \
