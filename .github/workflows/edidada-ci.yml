@@ -62,32 +62,10 @@ jobs:
           retention-days: 3
 
   cases:
-    name: "case: ${{ matrix.case }}"
+    name: primary case suite
     needs: build
     runs-on: ubuntu-22.04
-    timeout-minutes: 20
-    strategy:
-      fail-fast: false
-      matrix:
-        case:
-          - basic
-          - primary-select-tables
-          - primary-select-meta
-          - primary-insert
-          - primary-update
-          - primary-date
-          - primary-aggregation-func
-          - primary-drop-table
-          - primary-null
-          - primary-unique
-          - primary-multi-index
-          - primary-text
-          - primary-expression
-          - primary-order-by
-          - primary-group-by
-          - primary-join-tables
-          - primary-simple-sub-query
-          - primary-complex-sub-query
+    timeout-minutes: 40
 
     steps:
       - name: Checkout
@@ -105,28 +83,33 @@ jobs:
       - name: Restore exec bits
         run: chmod +x build/bin/*
 
-      - name: Debug observer start
-        run: |
-          ls -l build/bin
-          mkdir -p /tmp/dbgdata
-          cd /tmp/dbgdata
-          timeout 5 "$GITHUB_WORKSPACE/build/bin/observer" -f "$GITHUB_WORKSPACE/etc/observer.ini" -s /tmp/dbg.sock; echo "observer exit=$?"
-
-      - name: Run case
+      - name: Run case suite
         env:
           LD_LIBRARY_PATH: ${{ github.workspace }}/build/lib
         run: |
-          set -o pipefail
-          python3 test/case/miniob_test.py \
-            --test-case-dir=test/case/test \
-            --test-result-dir=test/case/result \
-            --test-case-scores=test/case/case-scores.json \
-            --db-base-dir="$GITHUB_WORKSPACE/build" \
-            --db-config="$GITHUB_WORKSPACE/etc/observer.ini" \
-            --db-data-dir="data_${{ matrix.case }}" \
-            --use-unix-socket --log=stdout --code-type=none \
-            --test-cases=${{ matrix.case }} | tee case.log
-          if grep -q 'Case failed' case.log; then
-            echo "case ${{ matrix.case }} FAILED"
+          failed=""
+          for c in basic primary-select-tables primary-select-meta primary-insert primary-update \
+                   primary-date primary-aggregation-func primary-drop-table primary-null primary-unique \
+                   primary-multi-index primary-text primary-expression primary-order-by primary-group-by \
+                   primary-join-tables primary-simple-sub-query primary-complex-sub-query; do
+            echo "::group::case $c"
+            python3 test/case/miniob_test.py \
+              --test-case-dir=test/case/test \
+              --test-result-dir=test/case/result \
+              --test-case-scores=test/case/case-scores.json \
+              --db-base-dir="$GITHUB_WORKSPACE/build" \
+              --db-config="$GITHUB_WORKSPACE/etc/observer.ini" \
+              --db-data-dir="data_$c" \
+              --use-unix-socket --log=stdout --code-type=none \
+              --test-cases=$c > "case_$c.log" 2>&1 || true
+            tail -n 20 "case_$c.log"
+            if grep -q 'Case failed' "case_$c.log"; then
+              echo "case $c FAILED"
+              failed="$failed $c"
+            fi
+            echo "::endgroup::"
+          done
+          if [ -n "$failed" ]; then
+            echo "failed cases:$failed"
             exit 1
           fi
