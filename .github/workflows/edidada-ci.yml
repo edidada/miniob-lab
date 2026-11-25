@@ -28,7 +28,8 @@ jobs:
             -DCMAKE_BUILD_TYPE=Release \
             -DCMAKE_C_COMPILER=clang-15 \
             -DCMAKE_CXX_COMPILER=clang++-15 \
-            -DWITH_UNIT_TESTS=ON
+            -DWITH_UNIT_TESTS=ON 
+            -DCMAKE_CXX_FLAGS="-I/usr/include/jsoncpp"
 
       - name: Build
         run: cmake --build build -j"$(nproc)"
