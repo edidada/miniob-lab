@@ -103,6 +103,13 @@ jobs:
       - name: Restore exec bits
         run: chmod +x build/bin/*
 
+      - name: Debug observer start
+        run: |
+          ls -l build/bin
+          mkdir -p /tmp/dbgdata
+          cd /tmp/dbgdata
+          timeout 5 "$GITHUB_WORKSPACE/build/bin/observer" -f "$GITHUB_WORKSPACE/etc/observer.ini" -s /tmp/dbg.sock; echo "observer exit=$?"
+
       - name: Run case
         run: |
           set -o pipefail
