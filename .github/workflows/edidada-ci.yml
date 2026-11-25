@@ -43,6 +43,15 @@ jobs:
           file build/bin/observer
           ldd build/bin/observer || true
 
+      - name: Smoke start observer
+        run: |
+          mkdir -p /tmp/obdata && cd /tmp/obdata
+          "$GITHUB_WORKSPACE/build/bin/observer" -f "$GITHUB_WORKSPACE/etc/observer.ini" -s /tmp/ob.sock &
+          sleep 5
+          ls -l /tmp/ob.sock || true
+          (echo "create table t1(id int);"; sleep 1; echo "exit") | "$GITHUB_WORKSPACE/build/bin/obclient" -s /tmp/ob.sock || true
+          kill %1 || true
+
       - name: Upload observer
         uses: actions/upload-artifact@v4
         with:
