@@ -14,6 +14,8 @@ See the Mulan PSL v2 for more details. */
 
 #pragma once
 
+#include <cstring>
+
 #include "storage/common/field.h"
 #include "sql/expr/tuple_cell.h"
 
@@ -78,8 +80,32 @@ class ValueExpr : public Expression
 {
 public:
   ValueExpr() = default;
-  ValueExpr(const Value &value) : tuple_cell_(value.type, (char *)value.data)
-  {}
+  ValueExpr(const Value &value)
+  {
+    const char *src = static_cast<const char *>(value.data);
+    switch (value.type) {
+      case INTS: {
+        int_value_ = *reinterpret_cast<const int *>(src);
+        tuple_cell_.set_type(INTS);
+        tuple_cell_.set_data(reinterpret_cast<char *>(&int_value_));
+      } break;
+      case FLOATS: {
+        float_value_ = *reinterpret_cast<const float *>(src);
+        tuple_cell_.set_type(FLOATS);
+        tuple_cell_.set_data(reinterpret_cast<char *>(&float_value_));
+      } break;
+      case CHARS: {
+        // the max length of CHARS in this version of miniob is 4 bytes
+        memcpy(char_value_, src, sizeof(char_value_));
+        tuple_cell_.set_type(CHARS);
+        tuple_cell_.set_data(char_value_);
+      } break;
+      default: {
+        tuple_cell_.set_type(value.type);
+        tuple_cell_.set_data(const_cast<char *>(src));
+      } break;
+    }
+  }
 
   virtual ~ValueExpr() = default;
 
@@ -94,5 +120,10 @@ public:
   }
 
 private:
+  // the parse tree (and the Value it owns) may be gone by the time the plan is executed,
+  // so the literal has to be copied into storage owned by the expression
+  int int_value_ = 0;
+  float float_value_ = 0;
+  char char_value_[4] = {0, 0, 0, 0};
   TupleCell tuple_cell_;
 };
