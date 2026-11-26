@@ -175,6 +175,73 @@ private:
 };
 */
 
+class JoinedTuple : public Tuple
+{
+public:
+  JoinedTuple() = default;
+  virtual ~JoinedTuple() = default;
+
+  void set_tuples(const std::vector<const Tuple *> &tuples)
+  {
+    tuples_ = tuples;
+  }
+
+  int cell_num() const override
+  {
+    int num = 0;
+    for (const Tuple *tuple : tuples_) {
+      num += tuple->cell_num();
+    }
+    return num;
+  }
+
+  RC cell_at(int index, TupleCell &cell) const override
+  {
+    if (index < 0) {
+      return RC::INVALID_ARGUMENT;
+    }
+    int offset = index;
+    for (const Tuple *tuple : tuples_) {
+      const int num = tuple->cell_num();
+      if (offset < num) {
+        return tuple->cell_at(offset, cell);
+      }
+      offset -= num;
+    }
+    return RC::INVALID_ARGUMENT;
+  }
+
+  RC find_cell(const Field &field, TupleCell &cell) const override
+  {
+    for (const Tuple *tuple : tuples_) {
+      RC rc = tuple->find_cell(field, cell);
+      if (rc == RC::SUCCESS) {
+        return rc;
+      }
+    }
+    return RC::NOTFOUND;
+  }
+
+  RC cell_spec_at(int index, const TupleCellSpec *&spec) const override
+  {
+    if (index < 0) {
+      return RC::INVALID_ARGUMENT;
+    }
+    int offset = index;
+    for (const Tuple *tuple : tuples_) {
+      const int num = tuple->cell_num();
+      if (offset < num) {
+        return tuple->cell_spec_at(offset, spec);
+      }
+      offset -= num;
+    }
+    return RC::INVALID_ARGUMENT;
+  }
+
+private:
+  std::vector<const Tuple *> tuples_;
+};
+
 class ProjectTuple : public Tuple
 {
 public:

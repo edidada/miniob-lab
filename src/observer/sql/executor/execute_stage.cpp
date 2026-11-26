@@ -32,6 +32,7 @@ See the Mulan PSL v2 for more details. */
 #include "sql/operator/predicate_operator.h"
 #include "sql/operator/delete_operator.h"
 #include "sql/operator/project_operator.h"
+#include "sql/operator/join_operator.h"
 #include "sql/stmt/stmt.h"
 #include "sql/stmt/select_stmt.h"
 #include "sql/stmt/update_stmt.h"
@@ -383,25 +384,58 @@ RC ExecuteStage::do_select(SQLStageEvent *sql_event)
   SelectStmt *select_stmt = (SelectStmt *)(sql_event->stmt());
   SessionEvent *session_event = sql_event->session_event();
   RC rc = RC::SUCCESS;
-  if (select_stmt->tables().size() != 1) {
-    LOG_WARN("select more than 1 tables is not supported");
-    rc = RC::UNIMPLENMENT;
-    return rc;
+
+  const std::vector<Table *> &tables = select_stmt->tables();
+  if (tables.empty()) {
+    LOG_WARN("select without any table");
+    return RC::INVALID_ARGUMENT;
   }
 
-  Operator *scan_oper = try_to_create_index_scan_operator(select_stmt->filter_stmt());
-  if (nullptr == scan_oper) {
-    scan_oper = new TableScanOperator(select_stmt->tables()[0]);
+  // 每个表一个 scan 算子，多表时用嵌套循环连接把它们串起来
+  std::vector<Operator *> scan_opers;
+  for (size_t i = 0; i < tables.size(); i++) {
+    Operator *scan_oper = nullptr;
+    if (tables.size() == 1) {
+      scan_oper = try_to_create_index_scan_operator(select_stmt->filter_stmt());
+    }
+    if (nullptr == scan_oper) {
+      scan_oper = new TableScanOperator(tables[i]);
+    }
+    scan_opers.push_back(scan_oper);
   }
 
-  DEFER([&] () {delete scan_oper;});
+  std::vector<const Table *> joined_tables;
+  std::vector<Operator *> join_opers;
+  DEFER([&] () {
+    for (Operator *oper : join_opers) {
+      delete oper;
+    }
+    for (Operator *oper : scan_opers) {
+      delete oper;
+    }
+  });
+
+  Operator *root_oper = scan_opers[0];
+  joined_tables.push_back(tables[0]);
+  for (size_t i = 1; i < scan_opers.size(); i++) {
+    NestedLoopJoinOperator *join_oper = new NestedLoopJoinOperator();
+    join_oper->add_child(root_oper);
+    join_oper->add_child(scan_opers[i]);
+    join_oper->set_filter(select_stmt->filter_stmt());
+    join_oper->set_left_tables(joined_tables);
+    join_oper->set_right_table(select_stmt->tables()[i]);
+    join_opers.push_back(join_oper);
+    root_oper = join_oper;
+    joined_tables.push_back(tables[i]);
+  }
 
   PredicateOperator pred_oper(select_stmt->filter_stmt());
-  pred_oper.add_child(scan_oper);
+  pred_oper.add_child(root_oper);
   ProjectOperator project_oper;
   project_oper.add_child(&pred_oper);
+  const bool multi_table = tables.size() > 1;
   for (const Field &field : select_stmt->query_fields()) {
-    project_oper.add_projection(field.table(), field.meta());
+    project_oper.add_projection(field.table(), field.meta(), multi_table);
   }
   rc = project_oper.open();
   if (rc != RC::SUCCESS) {

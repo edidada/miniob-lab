@@ -15,6 +15,9 @@ See the Mulan PSL v2 for more details. */
 #include "common/log/log.h"
 #include "sql/operator/project_operator.h"
 #include "storage/common/record.h"
+#include <cstring>
+#include <string>
+
 #include "storage/common/table.h"
 
 RC ProjectOperator::open()
@@ -50,12 +53,19 @@ Tuple *ProjectOperator::current_tuple()
   return &tuple_;
 }
 
-void ProjectOperator::add_projection(const Table *table, const FieldMeta *field_meta)
+void ProjectOperator::add_projection(const Table *table, const FieldMeta *field_meta, bool with_table_name)
 {
   // 对单表来说，展示的(alias) 字段总是字段名称，
   // 对多表查询来说，展示的alias 需要带表名字
   TupleCellSpec *spec = new TupleCellSpec(new FieldExpr(table, field_meta));
-  spec->set_alias(field_meta->name());
+  if (with_table_name) {
+    std::string alias = std::string(table->name()) + "." + field_meta->name();
+    char *alias_buf = new char[alias.size() + 1];
+    memcpy(alias_buf, alias.c_str(), alias.size() + 1);
+    spec->set_alias(alias_buf);
+  } else {
+    spec->set_alias(field_meta->name());
+  }
   tuple_.add_cell_spec(spec);
 }
 

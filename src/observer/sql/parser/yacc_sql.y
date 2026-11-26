@@ -345,10 +345,8 @@ update:			/*  update 语句的语法解析树*/
 		}
     ;
 select:				/*  select 语句的语法解析树*/
-    SELECT select_attr FROM ID rel_list where SEMICOLON
+    SELECT select_attr FROM from_list where SEMICOLON
 		{
-			// CONTEXT->ssql->sstr.selection.relations[CONTEXT->from_length++]=$4;
-			selects_append_relation(&CONTEXT->ssql->sstr.selection, $4);
 
 			selects_append_conditions(&CONTEXT->ssql->sstr.selection, CONTEXT->conditions, CONTEXT->condition_length);
 
@@ -398,11 +396,21 @@ attr_list:
   	  }
   	;
 
-rel_list:
-    /* empty */
-    | COMMA ID rel_list {	
-				selects_append_relation(&CONTEXT->ssql->sstr.selection, $2);
-		  }
+from_list:
+    from_item
+    | from_list COMMA from_item
+    ;
+
+from_item:
+    ID {
+        selects_append_relation(&CONTEXT->ssql->sstr.selection, $1);
+      }
+    | from_item ID ID ON condition condition_list {  /* inner join t on ... */
+        selects_append_relation(&CONTEXT->ssql->sstr.selection, $<string>4);
+      }
+    | from_item ID ID ID ON condition condition_list {  /* inner/left/right join t on ... */
+        selects_append_relation(&CONTEXT->ssql->sstr.selection, $<string>5);
+      }
     ;
 where:
     /* empty */ 
