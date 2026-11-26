@@ -35,6 +35,7 @@ See the Mulan PSL v2 for more details. */
 #include "sql/operator/update_operator.h"
 #include "sql/operator/project_operator.h"
 #include "sql/operator/join_operator.h"
+#include "sql/operator/order_by_operator.h"
 #include "sql/stmt/stmt.h"
 #include "sql/stmt/select_stmt.h"
 #include "sql/stmt/update_stmt.h"
@@ -445,8 +446,22 @@ RC ExecuteStage::do_select(SQLStageEvent *sql_event)
 
   PredicateOperator pred_oper(select_stmt->filter_stmt());
   pred_oper.add_child(root_oper);
+
+  OrderByOperator order_by_oper;
+  Operator *project_child = &pred_oper;
+  if (!select_stmt->order_by_fields().empty()) {
+    for (const Table *table : tables) {
+      order_by_oper.add_table(table);
+    }
+    for (const SelectStmt::OrderByField &order_field : select_stmt->order_by_fields()) {
+      order_by_oper.add_order_field(order_field.table, order_field.field, order_field.asc);
+    }
+    order_by_oper.add_child(&pred_oper);
+    project_child = &order_by_oper;
+  }
+
   ProjectOperator project_oper;
-  project_oper.add_child(&pred_oper);
+  project_oper.add_child(project_child);
   const bool multi_table = tables.size() > 1;
   for (const Field &field : select_stmt->query_fields()) {
     project_oper.add_projection(field.table(), field.meta(), multi_table);

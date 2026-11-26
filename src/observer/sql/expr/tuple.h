@@ -222,6 +222,8 @@ public:
     return RC::NOTFOUND;
   }
 
+  const std::vector<const Tuple *> &tuples() const { return tuples_; }
+
   RC cell_spec_at(int index, const TupleCellSpec *&spec) const override
   {
     if (index < 0) {

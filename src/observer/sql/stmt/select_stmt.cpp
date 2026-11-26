@@ -122,6 +122,39 @@ RC SelectStmt::create(Db *db, const Selects &select_sql, Stmt *&stmt)
     }
   }
 
+  // resolve order by fields
+  std::vector<SelectStmt::OrderByField> order_by_fields;
+  for (size_t i = 0; i < select_sql.order_by_num; i++) {
+    const RelAttr &relation_attr = select_sql.order_by_attributes[i];
+    Table *table = nullptr;
+    if (!common::is_blank(relation_attr.relation_name)) {
+      auto iter = table_map.find(relation_attr.relation_name);
+      if (iter == table_map.end()) {
+        LOG_WARN("no such table in from list: %s", relation_attr.relation_name);
+        return RC::SCHEMA_FIELD_MISSING;
+      }
+      table = iter->second;
+    } else {
+      if (tables.size() != 1) {
+        LOG_WARN("invalid. I do not know the order by attr's table. attr=%s", relation_attr.attribute_name);
+        return RC::SCHEMA_FIELD_MISSING;
+      }
+      table = tables[0];
+    }
+
+    const FieldMeta *field_meta = table->table_meta().field(relation_attr.attribute_name);
+    if (nullptr == field_meta) {
+      LOG_WARN("no such field in order by. field=%s.%s", table->name(), relation_attr.attribute_name);
+      return RC::SCHEMA_FIELD_MISSING;
+    }
+
+    SelectStmt::OrderByField order_field;
+    order_field.table = table;
+    order_field.field = field_meta;
+    order_field.asc = select_sql.order_by_asc[i] != 0;
+    order_by_fields.push_back(order_field);
+  }
+
   LOG_INFO("got %d tables in from stmt and %d fields in query stmt", tables.size(), query_fields.size());
 
   Table *default_table = nullptr;
@@ -143,6 +176,7 @@ RC SelectStmt::create(Db *db, const Selects &select_sql, Stmt *&stmt)
   select_stmt->tables_.swap(tables);
   select_stmt->query_fields_.swap(query_fields);
   select_stmt->filter_stmt_ = filter_stmt;
+  select_stmt->order_by_fields_.swap(order_by_fields);
   stmt = select_stmt;
   return RC::SUCCESS;
 }

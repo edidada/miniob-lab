@@ -38,6 +38,50 @@ char *substr(const char *s,int n1,int n2)/*从s中提取下标为n1~n2的字符�
   return sp;
 }
 
+// 词法器没有 ORDER/BY 关键字（不能重新生成 lex.yy.c），所以把 "order by"
+// 替换成已有的 VALUES token，再由 order_clause 规则识别。
+char *rewrite_order_by(const char *s)
+{
+	char *out = (char *)malloc(strlen(s) + 1);
+	if (out == NULL) {
+		return NULL;
+	}
+	size_t i = 0, j = 0;
+	int in_quote = 0;
+	while (s[i] != '\0') {
+		char c = s[i];
+		if (c == '\'') {
+			in_quote = !in_quote;
+			out[j++] = c;
+			i++;
+			continue;
+		}
+		if (!in_quote && (c == 'o' || c == 'O') &&
+		    strncasecmp(s + i, "order", 5) == 0 &&
+		    (s[i + 5] == ' ' || s[i + 5] == '\t')) {
+			size_t k = i + 5;
+			while (s[k] == ' ' || s[k] == '\t') {
+				k++;
+			}
+			if ((s[k] == 'b' || s[k] == 'B') && strncasecmp(s + k, "by", 2) == 0 &&
+			    (s[k + 2] == ' ' || s[k + 2] == '\t' || s[k + 2] == '\0')) {
+				out[j++] = 'v';
+				out[j++] = 'a';
+				out[j++] = 'l';
+				out[j++] = 'u';
+				out[j++] = 'e';
+				out[j++] = 's';
+				i = k + 2;
+				continue;
+			}
+		}
+		out[j++] = c;
+		i++;
+	}
+	out[j] = '\0';
+	return out;
+}
+
 void yyerror(yyscan_t scanner, const char *str)
 {
   ParserContext *context = (ParserContext *)(yyget_extra(scanner));
@@ -354,7 +398,7 @@ update:			/*  update 语句的语法解析树*/
 		}
     ;
 select:				/*  select 语句的语法解析树*/
-    SELECT select_attr FROM from_list where SEMICOLON
+    SELECT select_attr FROM from_list where order_clause SEMICOLON
 		{
 
 			selects_append_conditions(&CONTEXT->ssql->sstr.selection, CONTEXT->conditions, CONTEXT->condition_length);
@@ -369,6 +413,74 @@ select:				/*  select 语句的语法解析树*/
 			CONTEXT->value_length = 0;
 	}
 	;
+
+order_clause:
+    /* empty */
+    | VALUES order_list
+    ;
+
+order_list:
+    order_item
+    | order_list COMMA order_item
+    ;
+
+order_item:
+    ID {
+		RelAttr attr;
+		relation_attr_init(&attr, NULL, $1);
+		selects_append_order_by(&CONTEXT->ssql->sstr.selection, &attr, 1);
+		free($1);
+	}
+    | ID DESC {
+		RelAttr attr;
+		relation_attr_init(&attr, NULL, $1);
+		selects_append_order_by(&CONTEXT->ssql->sstr.selection, &attr, 0);
+		free($1);
+	}
+    | ID DOT ID DESC {
+		RelAttr attr;
+		relation_attr_init(&attr, $1, $3);
+		selects_append_order_by(&CONTEXT->ssql->sstr.selection, &attr, 0);
+		free($1);
+		free($3);
+	}
+    | ID ID {
+		int asc = 1;
+		if (0 == strcasecmp($2, "desc")) {
+			asc = 0;
+		} else if (0 != strcasecmp($2, "asc")) {
+			CONTEXT->ssql->flag = SCF_ERROR;
+			yyerror(scanner, "expect ASC or DESC");
+		}
+		RelAttr attr;
+		relation_attr_init(&attr, NULL, $1);
+		selects_append_order_by(&CONTEXT->ssql->sstr.selection, &attr, asc);
+		free($1);
+		free($2);
+	}
+    | ID DOT ID {
+		RelAttr attr;
+		relation_attr_init(&attr, $1, $3);
+		selects_append_order_by(&CONTEXT->ssql->sstr.selection, &attr, 1);
+		free($1);
+		free($3);
+	}
+    | ID DOT ID ID {
+		int asc = 1;
+		if (0 == strcasecmp($4, "desc")) {
+			asc = 0;
+		} else if (0 != strcasecmp($4, "asc")) {
+			CONTEXT->ssql->flag = SCF_ERROR;
+			yyerror(scanner, "expect ASC or DESC");
+		}
+		RelAttr attr;
+		relation_attr_init(&attr, $1, $3);
+		selects_append_order_by(&CONTEXT->ssql->sstr.selection, &attr, asc);
+		free($1);
+		free($3);
+		free($4);
+	}
+    ;
 
 select_attr:
     STAR {  
@@ -607,8 +719,10 @@ int sql_parse(const char *s, Query *sqls){
 	yyscan_t scanner;
 	yylex_init_extra(&context, &scanner);
 	context.ssql = sqls;
-	scan_string(s, scanner);
+	char *rewritten = rewrite_order_by(s);
+	scan_string(rewritten != NULL ? rewritten : s, scanner);
 	int result = yyparse(scanner);
 	yylex_destroy(scanner);
+	free(rewritten);
 	return result;
 }
