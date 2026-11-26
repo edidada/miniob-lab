@@ -132,6 +132,50 @@ void Db::all_tables(std::vector<std::string> &table_names) const
   }
 }
 
+RC Db::drop_table(const char *table_name)
+{
+  if (common::is_blank(table_name)) {
+    return RC::INVALID_ARGUMENT;
+  }
+
+  Table *table = nullptr;
+  auto iter = opened_tables_.find(table_name);
+  if (iter != opened_tables_.end()) {
+    table = iter->second;
+    opened_tables_.erase(iter);
+  }
+
+  std::string meta_file = table_meta_file(path_.c_str(), table_name);
+  std::string data_file = table_data_file(path_.c_str(), table_name);
+  if (table == nullptr) {
+    struct stat st;
+    if (0 != stat(meta_file.c_str(), &st)) {
+      LOG_WARN("table does not exist: %s", table_name);
+      return RC::SCHEMA_TABLE_NOT_EXIST;
+    }
+  }
+
+  std::vector<std::string> index_files;
+  if (table != nullptr) {
+    const TableMeta &table_meta = table->table_meta();
+    for (int i = 0; i < table_meta.index_num(); i++) {
+      const IndexMeta *index_meta = table_meta.index(i);
+      index_files.push_back(table_index_file(path_.c_str(), table_name, index_meta->name()));
+    }
+    table->sync();
+    delete table;
+    table = nullptr;
+  }
+
+  ::remove(meta_file.c_str());
+  ::remove(data_file.c_str());
+  for (const std::string &file : index_files) {
+    ::remove(file.c_str());
+  }
+  LOG_INFO("drop table: %s", table_name);
+  return RC::SUCCESS;
+}
+
 RC Db::sync()
 {
   RC rc = RC::SUCCESS;

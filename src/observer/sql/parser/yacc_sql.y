@@ -17,6 +17,9 @@ typedef struct ParserContext {
   size_t from_length;
   size_t value_length;
   Value values[MAX_NUM];
+  size_t row_num;
+  size_t row_value_num[MAX_NUM];
+  size_t row_start;
   Condition conditions[MAX_NUM];
   CompOp comp;
 	char id[MAX_NUM];
@@ -279,21 +282,28 @@ ID_get:
 
 	
 insert:				/*insert   语句的语法解析树*/
-    INSERT INTO ID VALUES LBRACE value value_list RBRACE SEMICOLON 
+    INSERT INTO ID VALUES row_list SEMICOLON 
 		{
-			// CONTEXT->values[CONTEXT->value_length++] = *$6;
-
 			CONTEXT->ssql->flag=SCF_INSERT;//"insert";
-			// CONTEXT->ssql->sstr.insertion.relation_name = $3;
-			// CONTEXT->ssql->sstr.insertion.value_num = CONTEXT->value_length;
-			// for(i = 0; i < CONTEXT->value_length; i++){
-			// 	CONTEXT->ssql->sstr.insertion.values[i] = CONTEXT->values[i];
-      // }
-			inserts_init(&CONTEXT->ssql->sstr.insertion, $3, CONTEXT->values, CONTEXT->value_length);
+			inserts_init(&CONTEXT->ssql->sstr.insertion, $3, CONTEXT->values, CONTEXT->value_length,
+          CONTEXT->row_num, CONTEXT->row_value_num);
 
       //临时变量清零
       CONTEXT->value_length=0;
+      CONTEXT->row_num=0;
     }
+
+row_list:
+    row
+    | row COMMA row_list
+    ;
+
+row:
+    LBRACE { CONTEXT->row_start = CONTEXT->value_length; } value value_list RBRACE
+    {
+      CONTEXT->row_value_num[CONTEXT->row_num++] = CONTEXT->value_length - CONTEXT->row_start;
+    }
+    ;
 
 value_list:
     /* empty */

@@ -166,7 +166,9 @@ void ExecuteStage::handle_request(common::StageEvent *event)
       do_desc_table(sql_event);
     } break;
 
-    case SCF_DROP_TABLE:
+    case SCF_DROP_TABLE: {
+      do_drop_table(sql_event);
+    } break;
     case SCF_DROP_INDEX:
     case SCF_LOAD_DATA: {
       default_storage_stage_->handle_event(event);
@@ -478,6 +480,16 @@ RC ExecuteStage::do_create_index(SQLStageEvent *sql_event)
   return rc;
 }
 
+RC ExecuteStage::do_drop_table(SQLStageEvent *sql_event)
+{
+  const DropTable &drop_table = sql_event->query()->sstr.drop_table;
+  SessionEvent *session_event = sql_event->session_event();
+  Db *db = session_event->session()->get_current_db();
+  RC rc = db->drop_table(drop_table.relation_name);
+  session_event->set_response(rc == RC::SUCCESS ? "SUCCESS\n" : "FAILURE\n");
+  return rc;
+}
+
 RC ExecuteStage::do_show_tables(SQLStageEvent *sql_event)
 {
   SessionEvent *session_event = sql_event->session_event();
@@ -525,7 +537,16 @@ RC ExecuteStage::do_insert(SQLStageEvent *sql_event)
   InsertStmt *insert_stmt = (InsertStmt *)stmt;
 
   Table *table = insert_stmt->table();
-  RC rc = table->insert_record(nullptr, insert_stmt->value_amount(), insert_stmt->values());
+  RC rc = RC::SUCCESS;
+  const Value *values = insert_stmt->values();
+  for (size_t i = 0; i < insert_stmt->row_num(); i++) {
+    const size_t row_value_num = insert_stmt->row_value_num(i);
+    rc = table->insert_record(nullptr, static_cast<int>(row_value_num), values);
+    if (rc != RC::SUCCESS) {
+      break;
+    }
+    values += row_value_num;
+  }
   if (rc == RC::SUCCESS) {
     session_event->set_response("SUCCESS\n");
   } else {

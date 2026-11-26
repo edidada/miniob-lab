@@ -78,9 +78,11 @@ typedef struct {
 
 // struct of insert
 typedef struct {
-  char *relation_name;    // Relation to insert into
-  size_t value_num;       // Length of values
-  Value values[MAX_NUM];  // values to insert
+  char *relation_name;           // Relation to insert into
+  size_t value_num;              // Length of values
+  Value values[MAX_NUM];         // values to insert
+  size_t row_num;                // number of value tuples, e.g. insert ... values (...),(...)
+  size_t row_value_num[MAX_NUM]; // value count of each tuple
 } Inserts;
 
 // struct of delete
@@ -204,7 +206,8 @@ void selects_append_relation(Selects *selects, const char *relation_name);
 void selects_append_conditions(Selects *selects, Condition conditions[], size_t condition_num);
 void selects_destroy(Selects *selects);
 
-void inserts_init(Inserts *inserts, const char *relation_name, Value values[], size_t value_num);
+void inserts_init(Inserts *inserts, const char *relation_name, Value values[], size_t value_num,
+    size_t row_num, size_t row_value_num[]);
 void inserts_destroy(Inserts *inserts);
 
 void deletes_init_relation(Deletes *deletes, const char *relation_name);
