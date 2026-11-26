@@ -17,6 +17,8 @@ See the Mulan PSL v2 for more details. */
 #include <algorithm>
 
 #include "common/defs.h"
+#include <cstring>
+
 #include "storage/common/table.h"
 #include "storage/common/table_meta.h"
 #include "common/log/log.h"
@@ -327,9 +329,8 @@ RC Table::make_record(int value_num, const Value *values, char *&record_out)
     const FieldMeta *field = table_meta_.field(i + normal_field_start_index);
     const Value &value = values[i];
     if (value.type == CHARS) {
-      // a string literal may be shorter than the column, so copy only the bytes that
-      // really exist and zero the remaining space instead of reading past the literal
-      const size_t src_len = (value.data == nullptr) ? 0 : strlen(static_cast<const char *>(value.data));
+      // the literal may be shorter than the column, so copy only what exists and zero the rest
+      const size_t src_len = strlen(static_cast<const char *>(value.data));
       const size_t copy_len = src_len < static_cast<size_t>(field->len()) ? src_len : static_cast<size_t>(field->len());
       memset(record + field->offset(), 0, field->len());
       memcpy(record + field->offset(), value.data, copy_len);
@@ -604,6 +605,69 @@ RC Table::create_index(Trx *trx, const char *index_name, const char *attribute_n
 
   LOG_INFO("Successfully added a new index (%s) on the table (%s)", index_name, name());
 
+  return rc;
+}
+
+RC Table::update_record(Trx *trx, Record *record, const char *field_name, const Value *value)
+{
+  RC rc = RC::SUCCESS;
+  if (trx != nullptr) {
+    return RC::GENERIC_ERROR;
+  }
+
+  const FieldMeta *field = table_meta_.field(field_name);
+  if (field == nullptr) {
+    LOG_WARN("no such field. table=%s, field=%s", name(), field_name);
+    return RC::SCHEMA_FIELD_NOT_EXIST;
+  }
+  if (field->type() != value->type) {
+    LOG_WARN("field type mismatch. table=%s, field=%s", name(), field_name);
+    return RC::SCHEMA_FIELD_TYPE_MISMATCH;
+  }
+
+  const int record_size = table_meta_.record_size();
+  char *new_data = (char *)malloc(record_size);
+  if (new_data == nullptr) {
+    return RC::NOMEM;
+  }
+  memcpy(new_data, record->data(), record_size);
+
+  char *field_data = new_data + field->offset();
+  if (field->type() == CHARS) {
+    size_t len = field->len();
+    memset(field_data, 0, len);
+    size_t value_len = strlen((const char *)value->data);
+    memcpy(field_data, value->data, value_len < len ? value_len : len);
+  } else {
+    memcpy(field_data, value->data, field->len());
+  }
+
+  rc = delete_entry_of_indexes(record->data(), record->rid(), false);
+  if (rc != RC::SUCCESS) {
+    LOG_WARN("failed to delete indexes of record. rc=%s", strrc(rc));
+    free(new_data);
+    return rc;
+  }
+
+  Record new_record;
+  new_record.set_data(new_data);
+  new_record.set_rid(record->rid());
+  rc = record_handler_->update_record(&new_record);
+  if (rc != RC::SUCCESS) {
+    LOG_WARN("failed to update record. rc=%s", strrc(rc));
+    // 回滚索引：把旧数据重新插回索引
+    insert_entry_of_indexes(record->data(), record->rid());
+    free(new_data);
+    return rc;
+  }
+
+  rc = insert_entry_of_indexes(new_data, record->rid());
+  if (rc != RC::SUCCESS) {
+    LOG_WARN("failed to insert indexes of record. rc=%s", strrc(rc));
+  }
+
+  memcpy(record->data(), new_data, record_size);
+  free(new_data);
   return rc;
 }
 
