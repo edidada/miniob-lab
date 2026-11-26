@@ -326,7 +326,16 @@ RC Table::make_record(int value_num, const Value *values, char *&record_out)
   for (int i = 0; i < value_num; i++) {
     const FieldMeta *field = table_meta_.field(i + normal_field_start_index);
     const Value &value = values[i];
-    memcpy(record + field->offset(), value.data, field->len());
+    if (value.type == CHARS) {
+      // a string literal may be shorter than the column, so copy only the bytes that
+      // really exist and zero the remaining space instead of reading past the literal
+      const size_t src_len = (value.data == nullptr) ? 0 : strlen(static_cast<const char *>(value.data));
+      const size_t copy_len = src_len < static_cast<size_t>(field->len()) ? src_len : static_cast<size_t>(field->len());
+      memset(record + field->offset(), 0, field->len());
+      memcpy(record + field->offset(), value.data, copy_len);
+    } else {
+      memcpy(record + field->offset(), value.data, field->len());
+    }
   }
 
   record_out = record;

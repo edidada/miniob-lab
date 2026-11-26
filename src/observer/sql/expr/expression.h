@@ -95,8 +95,13 @@ public:
         tuple_cell_.set_data(reinterpret_cast<char *>(&float_value_));
       } break;
       case CHARS: {
-        // the max length of CHARS in this version of miniob is 4 bytes
-        memcpy(char_value_, src, sizeof(char_value_));
+        // the max length of CHARS in this version of miniob is 4 bytes, but the literal
+        // may be shorter, so only copy the bytes that exist and zero the rest
+        memset(char_value_, 0, sizeof(char_value_));
+        if (src != nullptr) {
+          const size_t src_len = strlen(src);
+          memcpy(char_value_, src, src_len < sizeof(char_value_) ? src_len : sizeof(char_value_));
+        }
         tuple_cell_.set_type(CHARS);
         tuple_cell_.set_data(char_value_);
       } break;
