@@ -69,7 +69,7 @@ jobs:
           create index i_id on t_basic (id);
           select * from t_basic;
           SQL
-          gdb -batch -ex "set pagination off" -ex run -ex "bt 8" -ex "frame 0" -ex "info args" -ex "info locals" -ex "p filter_stmt_" -ex "p filter_stmt_->filter_units_.size()" \
+          gdb -batch -ex "set pagination off" -ex run -ex "bt 8" -ex "frame 0" -ex "info args" -ex "info locals" -ex "p this->filter_stmt_" -ex "p *(void**)right_expr" -ex "p ((Expression*)right_expr)->type()" -ex "p *(void**)this->filter_stmt_" \
               --args "$GITHUB_WORKSPACE/build/bin/observer" -f "$GITHUB_WORKSPACE/etc/observer.ini" -s /tmp/gdb.sock > /tmp/gdb.log 2>&1 &
           for i in $(seq 1 30); do [ -S /tmp/gdb.sock ] && break; sleep 1; done
           "$GITHUB_WORKSPACE/build/bin/obclient" -s /tmp/gdb.sock < /tmp/repro.sql || true
@@ -139,6 +139,7 @@ jobs:
             echo "failed cases:$failed"
             exit 1
           fi
+
 
 
 
