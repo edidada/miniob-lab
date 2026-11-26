@@ -62,6 +62,12 @@ jobs:
           insert into t_basic values(1,1, 'a', 1.0);
           insert into t_basic values(2,2, 'b', 2.0);
           select * from t_basic;
+          delete from t_basic where id=3;
+          select * from t_basic where id=1;
+          update t_basic set age=10 where id=2;
+          select * from t_basic where id=2;
+          create index i_id on t_basic (id);
+          select * from t_basic;
           SQL
           gdb -batch -ex "set pagination off" -ex run -ex "bt 25" -ex "info registers rip" \
               --args "$GITHUB_WORKSPACE/build/bin/observer" -f "$GITHUB_WORKSPACE/etc/observer.ini" -s /tmp/gdb.sock > /tmp/gdb.log 2>&1 &
@@ -133,4 +139,5 @@ jobs:
             echo "failed cases:$failed"
             exit 1
           fi
+
 
