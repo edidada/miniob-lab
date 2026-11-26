@@ -13,6 +13,7 @@ See the Mulan PSL v2 for more details. */
 //
 
 #include "sql/expr/tuple_cell.h"
+#include "common/date_utils.h"
 #include "storage/common/field.h"
 #include "common/log/log.h"
 #include "util/comparator.h"
@@ -25,6 +26,9 @@ void TupleCell::to_string(std::ostream &os) const
   } break;
   case FLOATS: {
     os << *(float *)data_;
+  } break;
+  case DATES: {
+    os << format_date(*(int *)data_);
   } break;
   case CHARS: {
     for (int i = 0; i < 4; i++) { // the max length of CHARS is 4
@@ -42,6 +46,21 @@ void TupleCell::to_string(std::ostream &os) const
 
 int TupleCell::compare(const TupleCell &other) const
 {
+  if (this->attr_type_ == DATES || other.attr_type_ == DATES) {
+    int this_date = 0;
+    int other_date = 0;
+    bool ok = true;
+    ok = ok && ((this->attr_type_ == DATES) ? (this_date = *(int *)data_, true)
+                                            : ((this->attr_type_ == CHARS) ? parse_date(data_, this_date) : false));
+    ok = ok && ((other.attr_type_ == DATES) ? (other_date = *(int *)other.data_, true)
+                                            : ((other.attr_type_ == CHARS) ? parse_date(other.data_, other_date) : false));
+    if (!ok) {
+      LOG_WARN("failed to compare date value");
+      return 1;
+    }
+    return compare_int(&this_date, &other_date);
+  }
+
   if (this->attr_type_ == other.attr_type_) {
     switch (this->attr_type_) {
     case INTS: return compare_int(this->data_, other.data_);

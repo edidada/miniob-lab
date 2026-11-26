@@ -16,6 +16,7 @@ See the Mulan PSL v2 for more details. */
 #include "common/log/log.h"
 #include "common/lang/string.h"
 #include "sql/stmt/filter_stmt.h"
+#include "common/date_utils.h"
 #include "storage/common/db.h"
 #include "storage/common/table.h"
 
@@ -89,6 +90,11 @@ RC FilterStmt::create_filter_unit(Db *db, Table *default_table, std::unordered_m
     return RC::INVALID_ARGUMENT;
   }
 
+  Value left_value = condition.left_value;
+  Value right_value = condition.right_value;
+  int left_date = 0;
+  int right_date = 0;
+
   Expression *left = nullptr;
   Expression *right = nullptr;
   if (condition.left_is_attr) {
@@ -99,9 +105,18 @@ RC FilterStmt::create_filter_unit(Db *db, Table *default_table, std::unordered_m
       LOG_WARN("cannot find attr");
       return rc;
     }
+    // 日期字段与字符串字面量比较时，先把字面量校验并转换成内部日期值
+    if (field->type() == DATES && !condition.right_is_attr && right_value.type == CHARS) {
+      if (!parse_date(static_cast<const char *>(right_value.data), right_date)) {
+        LOG_WARN("invalid date literal. field=%s", field->name());
+        return RC::INVALID_ARGUMENT;
+      }
+      right_value.type = DATES;
+      right_value.data = &right_date;
+    }
     left = new FieldExpr(table, field);
   } else {
-    left = new ValueExpr(condition.left_value);
+    left = new ValueExpr(left_value);
   }
 
   if (condition.right_is_attr) {
@@ -113,9 +128,20 @@ RC FilterStmt::create_filter_unit(Db *db, Table *default_table, std::unordered_m
       delete left;
       return rc;
     }
+    if (field->type() == DATES && !condition.left_is_attr && left_value.type == CHARS) {
+      if (!parse_date(static_cast<const char *>(left_value.data), left_date)) {
+        LOG_WARN("invalid date literal. field=%s", field->name());
+        delete left;
+        return RC::INVALID_ARGUMENT;
+      }
+      left_value.type = DATES;
+      left_value.data = &left_date;
+      delete left;
+      left = new ValueExpr(left_value);
+    }
     right = new FieldExpr(table, field);
   } else {
-    right = new ValueExpr(condition.right_value);
+    right = new ValueExpr(right_value);
   }
 
   filter_unit = new FilterUnit;

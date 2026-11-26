@@ -13,6 +13,7 @@ See the Mulan PSL v2 for more details. */
 //
 
 #include "sql/stmt/insert_stmt.h"
+#include "common/date_utils.h"
 #include "common/log/log.h"
 #include "storage/common/db.h"
 #include "storage/common/table.h"
@@ -66,6 +67,14 @@ RC InsertStmt::create(Db *db, const Inserts &inserts, Stmt *&stmt)
       const FieldMeta *field_meta = table_meta.field(static_cast<int>(i) + sys_field_num);
       const AttrType field_type = field_meta->type();
       const AttrType value_type = values[value_offset + i].type;
+      if (field_type == DATES && value_type == CHARS) {
+        int date_value = 0;
+        if (!parse_date(static_cast<const char *>(values[value_offset + i].data), date_value)) {
+          LOG_WARN("invalid date value. table=%s, field=%s", table_name, field_meta->name());
+          return RC::INVALID_ARGUMENT;
+        }
+        continue;
+      }
       if (field_type != value_type) { // TODO try to convert the value type to field type
         LOG_WARN("field type mismatch. table=%s, field=%s, field type=%d, value_type=%d",
                  table_name, field_meta->name(), field_type, value_type);
@@ -78,6 +87,44 @@ RC InsertStmt::create(Db *db, const Inserts &inserts, Stmt *&stmt)
   if (value_offset != value_num) {
     LOG_WARN("invalid value list. offset=%d, value_num=%d", static_cast<int>(value_offset), static_cast<int>(value_num));
     return RC::INVALID_ARGUMENT;
+  }
+
+  // convert date literals into the internal integer representation
+  Value *converted_values = nullptr;
+  bool has_date = false;
+  value_offset = 0;
+  for (size_t row = 0; row < row_num; row++) {
+    for (size_t i = 0; i < inserts.row_value_num[row]; i++) {
+      const FieldMeta *field_meta = table_meta.field(static_cast<int>(i) + sys_field_num);
+      if (field_meta->type() == DATES && values[value_offset + i].type == CHARS) {
+        has_date = true;
+      }
+    }
+    value_offset += inserts.row_value_num[row];
+  }
+  if (has_date) {
+    converted_values = new Value[value_num];
+    for (size_t i = 0; i < value_num; i++) {
+      converted_values[i] = values[i];
+    }
+    value_offset = 0;
+    for (size_t row = 0; row < row_num; row++) {
+      for (size_t i = 0; i < inserts.row_value_num[row]; i++) {
+        const FieldMeta *field_meta = table_meta.field(static_cast<int>(i) + sys_field_num);
+        if (field_meta->type() == DATES && values[value_offset + i].type == CHARS) {
+          int *date_value = new int(0);
+          if (!parse_date(static_cast<const char *>(values[value_offset + i].data), *date_value)) {
+            delete date_value;
+            delete[] converted_values;
+            return RC::INVALID_ARGUMENT;
+          }
+          converted_values[value_offset + i].type = DATES;
+          converted_values[value_offset + i].data = date_value;
+        }
+      }
+      value_offset += inserts.row_value_num[row];
+    }
+    values = converted_values;
   }
 
   // everything alright

@@ -13,15 +13,18 @@ See the Mulan PSL v2 for more details. */
 //
 
 #include "sql/stmt/update_stmt.h"
+#include "common/date_utils.h"
 #include "sql/stmt/filter_stmt.h"
 #include "common/log/log.h"
 #include "common/lang/string.h"
 #include "storage/common/db.h"
 #include "storage/common/table.h"
 
-UpdateStmt::UpdateStmt(Table *table, const char *field_name, const Value *value, FilterStmt *filter_stmt)
-  : table_(table), field_name_(field_name), value_(value), filter_stmt_(filter_stmt)
-{}
+UpdateStmt::UpdateStmt(Table *table, const char *field_name, const Value &value, FilterStmt *filter_stmt)
+  : table_(table), field_name_(field_name), filter_stmt_(filter_stmt)
+{
+  value_ = value;
+}
 
 UpdateStmt::~UpdateStmt()
 {
@@ -54,7 +57,18 @@ RC UpdateStmt::create(Db *db, const Updates &update, Stmt *&stmt)
     return RC::SCHEMA_FIELD_NOT_EXIST;
   }
 
-  if (field_meta->type() != update.value.type) {
+  Value converted = update.value;
+  int *date_value = nullptr;
+  if (field_meta->type() == DATES && update.value.type == CHARS) {
+    date_value = new int(0);
+    if (!parse_date(static_cast<const char *>(update.value.data), *date_value)) {
+      delete date_value;
+      LOG_WARN("invalid date value. table=%s, field=%s", table_name, update.attribute_name);
+      return RC::INVALID_ARGUMENT;
+    }
+    converted.type = DATES;
+    converted.data = date_value;
+  } else if (field_meta->type() != update.value.type) {
     LOG_WARN("field type mismatch. table=%s, field=%s, field type=%d, value type=%d",
         table_name, update.attribute_name, field_meta->type(), update.value.type);
     return RC::SCHEMA_FIELD_TYPE_MISMATCH;
@@ -70,6 +84,6 @@ RC UpdateStmt::create(Db *db, const Updates &update, Stmt *&stmt)
     return rc;
   }
 
-  stmt = new UpdateStmt(table, field_meta->name(), &update.value, filter_stmt);
+  stmt = new UpdateStmt(table, field_meta->name(), converted, filter_stmt);
   return RC::SUCCESS;
 }

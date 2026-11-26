@@ -94,9 +94,14 @@ public:
         tuple_cell_.set_type(FLOATS);
         tuple_cell_.set_data(reinterpret_cast<char *>(&float_value_));
       } break;
+      case DATES: {
+        int_value_ = *reinterpret_cast<const int *>(src);
+        tuple_cell_.set_type(DATES);
+        tuple_cell_.set_data(reinterpret_cast<char *>(&int_value_));
+      } break;
       case CHARS: {
         // the max length of CHARS in this version of miniob is 4 bytes, but the literal
-        // may be shorter, so only copy the bytes that exist and zero the rest
+        // may be shorter, so copy only the bytes that exist and zero the rest
         memset(char_value_, 0, sizeof(char_value_));
         if (src != nullptr) {
           const size_t src_len = strlen(src);
@@ -129,6 +134,6 @@ private:
   // so the literal has to be copied into storage owned by the expression
   int int_value_ = 0;
   float float_value_ = 0;
-  char char_value_[4] = {0, 0, 0, 0};
+  char char_value_[16] = {0};
   TupleCell tuple_cell_;
 };

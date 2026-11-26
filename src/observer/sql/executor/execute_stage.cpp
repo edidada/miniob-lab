@@ -22,6 +22,7 @@ See the Mulan PSL v2 for more details. */
 #include "common/lang/defer.h"
 #include "common/seda/timer_stage.h"
 #include "common/lang/string.h"
+#include "common/date_utils.h"
 #include "session/session.h"
 #include "event/storage_event.h"
 #include "event/sql_event.h"
@@ -326,6 +327,18 @@ IndexScanOperator *try_to_create_index_scan_operator(FilterStmt *filter_stmt)
   ValueExpr &right_value_expr = *(ValueExpr *)right;
   TupleCell value;
   right_value_expr.get_tuple_cell(value);
+
+  // the index key is stored as the field type, so a date literal has to be converted
+  // before it can be used as the scan boundary
+  if (field.meta()->type() == DATES && value.attr_type() == CHARS) {
+    int *date_value = new int(0);
+    if (!parse_date(value.data(), *date_value)) {
+      delete date_value;
+      return nullptr;
+    }
+    value.set_type(DATES);
+    value.set_data(reinterpret_cast<char *>(date_value));
+  }
 
   const TupleCell *left_cell = nullptr;
   const TupleCell *right_cell = nullptr;

@@ -9,6 +9,7 @@
 #include<stdio.h>
 #include<stdlib.h>
 #include<string.h>
+#include<strings.h>
 
 typedef struct ParserContext {
   Query * ssql;
@@ -271,6 +272,14 @@ type:
 	INT_T { $$=INTS; }
        | STRING_T { $$=CHARS; }
        | FLOAT_T { $$=FLOATS; }
+       | ID {
+		if (0 == strcasecmp($1, "date")) {
+			$$ = DATES;
+		} else {
+			$$ = UNDEFINED;
+		}
+		free($1);
+       }
        ;
 ID_get:
 	ID 

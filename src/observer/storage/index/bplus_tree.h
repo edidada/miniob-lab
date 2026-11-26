@@ -43,7 +43,8 @@ public:
 
   int operator()(const char *v1, const char *v2) const {
     switch (attr_type_) {
-    case INTS: {
+    case INTS:
+    case DATES: {
       return *(int *)v1 - *(int *)v2;
     }
       break;
@@ -110,7 +111,8 @@ public:
 
   std::string operator()(const char *v) const {
     switch (attr_type_) {
-    case INTS: {
+    case INTS:
+    case DATES: {
       return std::to_string(*(int*)v);
     }
       break;
