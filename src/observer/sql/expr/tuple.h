@@ -93,8 +93,10 @@ public:
   {
     table_ = table;
     this->speces_.reserve(fields->size());
-    for (const FieldMeta &field : *fields) {
-      speces_.push_back(new TupleCellSpec(new FieldExpr(table, &field)));
+    // keep a pointer to the FieldMeta inside the table metadata instead of the loop copy,
+    // otherwise every spec would reference a FieldMeta that is destroyed at the end of the iteration
+    for (size_t i = 0; i < fields->size(); i++) {
+      speces_.push_back(new TupleCellSpec(new FieldExpr(table, &(*fields)[i])));
     }
   }
 
