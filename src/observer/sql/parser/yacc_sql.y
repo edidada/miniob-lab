@@ -38,6 +38,16 @@ char *substr(const char *s,int n1,int n2)/*从s中提取下标为n1~n2的字符�
   return sp;
 }
 
+int agg_type_of_name(const char *name)
+{
+	if (0 == strcasecmp(name, "count")) return AGG_COUNT;
+	if (0 == strcasecmp(name, "min")) return AGG_MIN;
+	if (0 == strcasecmp(name, "max")) return AGG_MAX;
+	if (0 == strcasecmp(name, "sum")) return AGG_SUM;
+	if (0 == strcasecmp(name, "avg")) return AGG_AVG;
+	return AGG_NONE;
+}
+
 // 词法器没有 ORDER/BY 关键字（不能重新生成 lex.yy.c），所以把 "order by"
 // 替换成已有的 VALUES token，再由 order_clause 规则识别。
 char *rewrite_order_by(const char *s)
@@ -55,6 +65,23 @@ char *rewrite_order_by(const char *s)
 			out[j++] = c;
 			i++;
 			continue;
+		}
+		if (!in_quote && (c == 'g' || c == 'G') &&
+		    strncasecmp(s + i, "group", 5) == 0 &&
+		    (s[i + 5] == ' ' || s[i + 5] == '\t')) {
+			size_t k = i + 5;
+			while (s[k] == ' ' || s[k] == '\t') {
+				k++;
+			}
+			if ((s[k] == 'b' || s[k] == 'B') && strncasecmp(s + k, "by", 2) == 0 &&
+			    (s[k + 2] == ' ' || s[k + 2] == '\t' || s[k + 2] == '\0')) {
+				out[j++] = 'd';
+				out[j++] = 'a';
+				out[j++] = 't';
+				out[j++] = 'a';
+				i = k + 2;
+				continue;
+			}
 		}
 		if (!in_quote && (c == 'o' || c == 'O') &&
 		    strncasecmp(s + i, "order", 5) == 0 &&
@@ -398,7 +425,7 @@ update:			/*  update 语句的语法解析树*/
 		}
     ;
 select:				/*  select 语句的语法解析树*/
-    SELECT select_attr FROM from_list where order_clause SEMICOLON
+    SELECT select_attr FROM from_list where group_clause order_clause SEMICOLON
 		{
 
 			selects_append_conditions(&CONTEXT->ssql->sstr.selection, CONTEXT->conditions, CONTEXT->condition_length);
@@ -413,6 +440,32 @@ select:				/*  select 语句的语法解析树*/
 			CONTEXT->value_length = 0;
 	}
 	;
+
+group_clause:
+    /* empty */
+    | DATA group_list
+    ;
+
+group_list:
+    group_item
+    | group_list COMMA group_item
+    ;
+
+group_item:
+    ID {
+		RelAttr attr;
+		relation_attr_init(&attr, NULL, $1);
+		selects_append_group_by(&CONTEXT->ssql->sstr.selection, &attr);
+		free($1);
+	}
+    | ID DOT ID {
+		RelAttr attr;
+		relation_attr_init(&attr, $1, $3);
+		selects_append_group_by(&CONTEXT->ssql->sstr.selection, &attr);
+		free($1);
+		free($3);
+	}
+    ;
 
 order_clause:
     /* empty */
@@ -482,23 +535,92 @@ order_item:
 	}
     ;
 
+agg_arg_tail:
+    ID { free($1); }
+    | agg_arg_tail COMMA ID { free($3); }
+    ;
+
 select_attr:
-    STAR {  
+    select_item select_item_list
+    ;
+
+select_item_list:
+    /* empty */
+    | COMMA select_item select_item_list
+    ;
+
+select_item:
+    STAR {
 			RelAttr attr;
 			relation_attr_init(&attr, NULL, "*");
 			selects_append_attribute(&CONTEXT->ssql->sstr.selection, &attr);
 		}
-    | ID attr_list {
+    | ID {
 			RelAttr attr;
 			relation_attr_init(&attr, NULL, $1);
 			selects_append_attribute(&CONTEXT->ssql->sstr.selection, &attr);
+			free($1);
 		}
-  	| ID DOT ID attr_list {
+  	| ID DOT ID {
 			RelAttr attr;
 			relation_attr_init(&attr, $1, $3);
 			selects_append_attribute(&CONTEXT->ssql->sstr.selection, &attr);
+			free($1);
+			free($3);
+		}
+	| ID LBRACE STAR RBRACE {
+			int agg = agg_type_of_name($1);
+			free($1);
+			RelAttr attr;
+			relation_attr_init(&attr, NULL, "*");
+			attr.agg_type = agg;
+			selects_append_attribute(&CONTEXT->ssql->sstr.selection, &attr);
+		}
+	| ID LBRACE RBRACE {
+			int agg = agg_type_of_name($1);
+			free($1);
+			RelAttr attr;
+			relation_attr_init(&attr, NULL, "");
+			attr.agg_type = agg;
+			selects_append_attribute(&CONTEXT->ssql->sstr.selection, &attr);
+		}
+	| ID LBRACE ID COMMA agg_arg_tail RBRACE {
+			int agg = agg_type_of_name($1);
+			free($1);
+			RelAttr attr;
+			relation_attr_init(&attr, NULL, "");
+			attr.agg_type = agg == AGG_NONE ? AGG_COUNT : agg;
+			selects_append_attribute(&CONTEXT->ssql->sstr.selection, &attr);
+		}
+	| ID LBRACE STAR COMMA agg_arg_tail RBRACE {
+			int agg = agg_type_of_name($1);
+			free($1);
+			RelAttr attr;
+			relation_attr_init(&attr, NULL, "");
+			attr.agg_type = agg == AGG_NONE ? AGG_COUNT : agg;
+			selects_append_attribute(&CONTEXT->ssql->sstr.selection, &attr);
+		}
+	| ID LBRACE ID RBRACE {
+			int agg = agg_type_of_name($1);
+			free($1);
+			RelAttr attr;
+			relation_attr_init(&attr, NULL, $3);
+			attr.agg_type = agg;
+			selects_append_attribute(&CONTEXT->ssql->sstr.selection, &attr);
+			free($3);
+		}
+	| ID LBRACE ID DOT ID RBRACE {
+			int agg = agg_type_of_name($1);
+			free($1);
+			RelAttr attr;
+			relation_attr_init(&attr, $3, $5);
+			attr.agg_type = agg;
+			selects_append_attribute(&CONTEXT->ssql->sstr.selection, &attr);
+			free($3);
+			free($5);
 		}
     ;
+
 attr_list:
     /* empty */
     | COMMA ID attr_list {

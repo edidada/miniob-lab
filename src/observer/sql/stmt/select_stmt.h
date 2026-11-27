@@ -14,6 +14,7 @@ See the Mulan PSL v2 for more details. */
 
 #pragma once
 
+#include <string>
 #include <vector>
 
 #include "rc.h"
@@ -44,15 +45,29 @@ public:
     bool asc = true;
   };
 
+  struct SelectItem
+  {
+    int agg = 0;                   // AggType, 0 for a plain field
+    const Table *table = nullptr;  // null for count(*)
+    const FieldMeta *field = nullptr;
+    std::string alias;
+  };
+
   const std::vector<Table *> &tables() const { return tables_; }
   const std::vector<Field> &query_fields() const { return query_fields_; }
   const std::vector<OrderByField> &order_by_fields() const { return order_by_fields_; }
+  const std::vector<SelectItem> &select_items() const { return select_items_; }
+  const std::vector<Field> &group_by_fields() const { return group_by_fields_; }
+  bool has_aggregate() const { return has_aggregate_; }
   FilterStmt *filter_stmt() const { return filter_stmt_; }
 
 private:
   std::vector<Field> query_fields_;
   std::vector<Table *> tables_;
   std::vector<OrderByField> order_by_fields_;
+  std::vector<SelectItem> select_items_;
+  std::vector<Field> group_by_fields_;
+  bool has_aggregate_ = false;
   FilterStmt *filter_stmt_ = nullptr;
 };
 

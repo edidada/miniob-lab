@@ -36,6 +36,7 @@ See the Mulan PSL v2 for more details. */
 #include "sql/operator/project_operator.h"
 #include "sql/operator/join_operator.h"
 #include "sql/operator/order_by_operator.h"
+#include "sql/operator/aggregation_operator.h"
 #include "sql/stmt/stmt.h"
 #include "sql/stmt/select_stmt.h"
 #include "sql/stmt/update_stmt.h"
@@ -446,6 +447,54 @@ RC ExecuteStage::do_select(SQLStageEvent *sql_event)
 
   PredicateOperator pred_oper(select_stmt->filter_stmt());
   pred_oper.add_child(root_oper);
+
+  const bool multi_table_flag = tables.size() > 1;
+  if (select_stmt->has_aggregate() || !select_stmt->group_by_fields().empty()) {
+    AggregationOperator agg_oper;
+    agg_oper.set_multi_table(multi_table_flag);
+    for (const Field &field : select_stmt->group_by_fields()) {
+      agg_oper.add_group_field(field.table(), field.meta());
+    }
+    for (const SelectStmt::SelectItem &item : select_stmt->select_items()) {
+      agg_oper.add_item(item.agg, item.table, item.field);
+    }
+    agg_oper.add_child(&pred_oper);
+
+    rc = agg_oper.open();
+    if (rc != RC::SUCCESS) {
+      LOG_WARN("failed to open aggregation operator. rc=%s", strrc(rc));
+      session_event->set_response("FAILURE\n");
+      return rc;
+    }
+
+    std::stringstream ss;
+    const std::vector<std::string> &header = agg_oper.header();
+    for (size_t i = 0; i < header.size(); i++) {
+      if (i != 0) {
+        ss << " | ";
+      }
+      ss << header[i];
+    }
+    ss << '\n';
+
+    while ((rc = agg_oper.next()) == RC::SUCCESS) {
+      Tuple *tuple = agg_oper.current_tuple();
+      if (tuple == nullptr) {
+        rc = RC::INTERNAL;
+        break;
+      }
+      tuple_to_string(ss, *tuple);
+      ss << std::endl;
+    }
+
+    if (rc == RC::RECORD_EOF) {
+      agg_oper.close();
+    } else {
+      agg_oper.close();
+    }
+    session_event->set_response(ss.str());
+    return rc == RC::RECORD_EOF ? RC::SUCCESS : rc;
+  }
 
   OrderByOperator order_by_oper;
   Operator *project_child = &pred_oper;

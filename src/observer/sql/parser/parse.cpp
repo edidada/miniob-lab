@@ -24,6 +24,7 @@ extern "C" {
 #endif  // __cplusplus
 void relation_attr_init(RelAttr *relation_attr, const char *relation_name, const char *attribute_name)
 {
+  relation_attr->agg_type = 0;
   if (relation_name != nullptr) {
     relation_attr->relation_name = strdup(relation_name);
   } else {
@@ -116,6 +117,11 @@ void selects_append_attribute(Selects *selects, RelAttr *rel_attr)
 void selects_append_relation(Selects *selects, const char *relation_name)
 {
   selects->relations[selects->relation_num++] = strdup(relation_name);
+}
+
+void selects_append_group_by(Selects *selects, RelAttr *rel_attr)
+{
+  selects->group_by_attributes[selects->group_by_num++] = *rel_attr;
 }
 
 void selects_append_order_by(Selects *selects, RelAttr *rel_attr, int asc)

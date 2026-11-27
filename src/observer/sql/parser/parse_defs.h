@@ -24,9 +24,21 @@ See the Mulan PSL v2 for more details. */
 #define MAX_DATA 50
 
 //属性结构体
+// aggregate function type
+enum AggType
+{
+  AGG_NONE = 0,
+  AGG_COUNT,
+  AGG_MIN,
+  AGG_MAX,
+  AGG_SUM,
+  AGG_AVG
+};
+
 typedef struct {
   char *relation_name;   // relation name (may be NULL) 表名
   char *attribute_name;  // attribute name              属性名
+  int agg_type;          // aggregate function type, AGG_NONE for a plain field
 } RelAttr;
 
 typedef enum {
@@ -78,6 +90,8 @@ typedef struct {
   size_t order_by_num;            // Length of order by fields
   RelAttr order_by_attributes[MAX_NUM];  // order by fields
   int order_by_asc[MAX_NUM];      // 1: asc, 0: desc
+  size_t group_by_num;            // Length of group by fields
+  RelAttr group_by_attributes[MAX_NUM];  // group by fields
 } Selects;
 
 // struct of insert
