@@ -120,6 +120,7 @@ public:
     cell.set_type(field_meta->type());
     cell.set_data(const_cast<char *>(data));
     cell.set_null(value_is_null(field_meta->type(), data, field_meta->len()));
+    cell.set_len(field_meta->len());
     return RC::SUCCESS;
   }
 

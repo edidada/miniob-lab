@@ -22,6 +22,7 @@ typedef struct ParserContext {
   size_t row_value_num[MAX_NUM];
   size_t row_start;
   int nullable;
+  int type_len;
   Condition conditions[MAX_NUM];
   CompOp comp;
 	char id[MAX_NUM];
@@ -385,11 +386,50 @@ desc_table:
     ;
 
 create_index:		/*create index 语句的语法解析树*/
-    CREATE INDEX ID ON ID LBRACE ID RBRACE SEMICOLON 
+    CREATE INDEX ID ON ID LBRACE index_attr_list RBRACE SEMICOLON
 		{
 			CONTEXT->ssql->flag = SCF_CREATE_INDEX;//"create_index";
-			create_index_init(&CONTEXT->ssql->sstr.create_index, $3, $5, $7);
+			CreateIndex *ci = &CONTEXT->ssql->sstr.create_index;
+			ci->index_name = strdup($3);
+			ci->relation_name = strdup($5);
+			ci->unique = 0;
+			ci->attribute_name = ci->attribute_num > 0 ? strdup(ci->attributes[0]) : NULL;
+			free($3);
+			free($5);
 		}
+    /* 词法器没有 UNIQUE 关键字，这里用 ID 兜住 */
+    | CREATE ID INDEX ID ON ID LBRACE index_attr_list RBRACE SEMICOLON
+		{
+			if (0 != strcasecmp($2, "unique")) {
+				CONTEXT->ssql->flag = SCF_ERROR;
+				yyerror(scanner, "expect unique");
+			}
+			CONTEXT->ssql->flag = SCF_CREATE_INDEX;
+			CreateIndex *ci = &CONTEXT->ssql->sstr.create_index;
+			ci->index_name = strdup($4);
+			ci->relation_name = strdup($6);
+			ci->unique = 1;
+			ci->attribute_name = ci->attribute_num > 0 ? strdup(ci->attributes[0]) : NULL;
+			free($2);
+			free($4);
+			free($6);
+		}
+    ;
+
+index_attr_list:
+    ID {
+        CONTEXT->ssql->sstr.create_index.attributes[0] = $1;
+        CONTEXT->ssql->sstr.create_index.attribute_num = 1;
+      }
+    | index_attr_list COMMA ID {
+        size_t n = CONTEXT->ssql->sstr.create_index.attribute_num;
+        if (n < MAX_NUM) {
+          CONTEXT->ssql->sstr.create_index.attributes[n] = $3;
+          CONTEXT->ssql->sstr.create_index.attribute_num = n + 1;
+        } else {
+          free($3);
+        }
+      }
     ;
 
 drop_index:			/*drop index 语句的语法解析树*/
@@ -418,6 +458,7 @@ attr_def:
     ID_get type LBRACE number RBRACE attr_constraint
 		{
 			AttrInfo attribute;
+			CONTEXT->type_len = 0;
 			attr_info_init(&attribute, CONTEXT->id, $2, $4, CONTEXT->nullable);
 			create_table_append_attribute(&CONTEXT->ssql->sstr.create_table, &attribute);
 			// CONTEXT->ssql->sstr.create_table.attributes[CONTEXT->value_length].name =(char*)malloc(sizeof(char));
@@ -429,7 +470,8 @@ attr_def:
     |ID_get type attr_constraint
 		{
 			AttrInfo attribute;
-			attr_info_init(&attribute, CONTEXT->id, $2, 4, CONTEXT->nullable);
+			attr_info_init(&attribute, CONTEXT->id, $2, CONTEXT->type_len > 0 ? CONTEXT->type_len : 4, CONTEXT->nullable);
+			CONTEXT->type_len = 0;
 			create_table_append_attribute(&CONTEXT->ssql->sstr.create_table, &attribute);
 			// CONTEXT->ssql->sstr.create_table.attributes[CONTEXT->value_length].name=(char*)malloc(sizeof(char));
 			// strcpy(CONTEXT->ssql->sstr.create_table.attributes[CONTEXT->value_length].name, CONTEXT->id); 
@@ -470,8 +512,13 @@ type:
        | STRING_T { $$=CHARS; }
        | FLOAT_T { $$=FLOATS; }
        | ID {
+		CONTEXT->type_len = 0;
 		if (0 == strcasecmp($1, "date")) {
 			$$ = DATES;
+		} else if (0 == strcasecmp($1, "text")) {
+			// text 是不限长的字符串，按测试要求一个字段最大 4096 字节
+			$$ = CHARS;
+			CONTEXT->type_len = 4096;
 		} else {
 			$$ = UNDEFINED;
 		}

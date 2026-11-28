@@ -291,12 +291,18 @@ void create_index_init(
   create_index->index_name = strdup(index_name);
   create_index->relation_name = strdup(relation_name);
   create_index->attribute_name = strdup(attr_name);
+  create_index->attribute_num = 0;
+  create_index->unique = 0;
 }
 
 void create_index_destroy(CreateIndex *create_index)
 {
   free(create_index->index_name);
   free(create_index->relation_name);
+  for (size_t i = 0; i < create_index->attribute_num; i++) {
+    free(create_index->attributes[i]);
+  }
+  create_index->attribute_num = 0;
   free(create_index->attribute_name);
 
   create_index->index_name = nullptr;

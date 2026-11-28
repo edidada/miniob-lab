@@ -596,7 +596,18 @@ RC ExecuteStage::do_create_index(SQLStageEvent *sql_event)
     return RC::SCHEMA_TABLE_NOT_EXIST;
   }
 
-  RC rc = table->create_index(nullptr, create_index.index_name, create_index.attribute_name);
+  for (int i = 0; i < create_index.attribute_num; i++) {
+    if (create_index.attributes[i] == nullptr ||
+        table->table_meta().field(create_index.attributes[i]) == nullptr) {
+      LOG_WARN("attribute of index does not exist. index=%s attribute=%s",
+          create_index.index_name, create_index.attributes[i] ? create_index.attributes[i] : "(null)");
+      sql_event->session_event()->set_response("FAILURE\n");
+      return RC::SCHEMA_FIELD_MISSING;
+    }
+  }
+
+  RC rc = table->create_index(nullptr, create_index.index_name, create_index.attribute_name,
+                              create_index.unique != 0);
   sql_event->session_event()->set_response(rc == RC::SUCCESS ? "SUCCESS\n" : "FAILURE\n");
   return rc;
 }

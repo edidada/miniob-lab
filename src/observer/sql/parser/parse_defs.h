@@ -178,7 +178,10 @@ typedef struct {
 typedef struct {
   char *index_name;      // Index name
   char *relation_name;   // Relation name
-  char *attribute_name;  // Attribute name
+  char *attribute_name;  // Attribute name (first column, kept for compatibility)
+  char *attributes[MAX_NUM];  // 索引列（复合索引时多列）
+  size_t attribute_num;
+  int unique;            // 1 表示唯一索引
 } CreateIndex;
 
 // struct of  drop_index

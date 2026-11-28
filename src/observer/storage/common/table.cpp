@@ -223,6 +223,12 @@ RC Table::insert_record(Trx *trx, Record *record)
 {
   RC rc = RC::SUCCESS;
 
+  rc = check_unique_indexes(record->data());
+  if (rc != RC::SUCCESS) {
+    LOG_WARN("unique index conflict. table=%s", name());
+    return rc;
+  }
+
   if (trx != nullptr) {
     trx->init_trx_info(this, *record);
   }
@@ -531,7 +537,38 @@ static RC insert_index_record_reader_adapter(Record *record, void *context)
   return inserter.insert_index(record);
 }
 
-RC Table::create_index(Trx *trx, const char *index_name, const char *attribute_name)
+RC Table::check_unique_indexes(const char *record) const
+{
+  for (int i = 0; i < table_meta_.index_num(); i++) {
+    const IndexMeta *index_meta = table_meta_.index(i);
+    if (index_meta == nullptr || !index_meta->unique()) {
+      continue;
+    }
+    const FieldMeta *field_meta = table_meta_.field(index_meta->field());
+    if (field_meta == nullptr) {
+      continue;
+    }
+    Index *index = find_index(index_meta->name());
+    if (index == nullptr) {
+      continue;
+    }
+    const char *key = record + field_meta->offset();
+    IndexScanner *scanner = index->create_scanner(key, true, key, true);
+    if (scanner == nullptr) {
+      continue;
+    }
+    RID rid;
+    bool duplicated = (scanner->next_entry(&rid) == RC::SUCCESS);
+    scanner->destroy();
+    if (duplicated) {
+      LOG_WARN("duplicated key for unique index. index=%s", index_meta->name());
+      return RC::RECORD_DUPLICATE_KEY;
+    }
+  }
+  return RC::SUCCESS;
+}
+
+RC Table::create_index(Trx *trx, const char *index_name, const char *attribute_name, bool unique)
 {
   if (common::is_blank(index_name) || common::is_blank(attribute_name)) {
     LOG_INFO("Invalid input arguments, table name is %s, index_name is blank or attribute_name is blank", name());
@@ -550,7 +587,7 @@ RC Table::create_index(Trx *trx, const char *index_name, const char *attribute_n
   }
 
   IndexMeta new_index_meta;
-  RC rc = new_index_meta.init(index_name, *field_meta);
+  RC rc = new_index_meta.init(index_name, *field_meta, unique);
   if (rc != RC::SUCCESS) {
     LOG_INFO("Failed to init IndexMeta in table:%s, index_name:%s, field_name:%s",
              name(), index_name, attribute_name);

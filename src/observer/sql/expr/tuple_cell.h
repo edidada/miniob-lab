@@ -49,9 +49,12 @@ public:
   }
 
   void set_null(bool is_null) { is_null_ = is_null; }
+  void set_len(int len) { len_ = len; }
+  int len() const { return len_; }
   bool is_null() const { return is_null_; }
 private:
   AttrType attr_type_ = UNDEFINED;
   char *data_ = nullptr; // real data. no need to move to field_meta.offset
   bool is_null_ = false;
+  int len_ = 4;  // CHARS 的有效长度，其它类型忽略
 };
