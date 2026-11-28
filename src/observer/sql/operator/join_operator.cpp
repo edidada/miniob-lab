@@ -111,8 +111,11 @@ RC NestedLoopJoinOperator::next()
         }
         TupleCell left_cell;
         TupleCell right_cell;
-        filter_unit->left()->get_value(joined_tuple_, left_cell);
-        filter_unit->right()->get_value(joined_tuple_, right_cell);
+        if (filter_unit->left()->get_value(joined_tuple_, left_cell) != RC::SUCCESS ||
+            filter_unit->right()->get_value(joined_tuple_, right_cell) != RC::SUCCESS) {
+          matched = false;
+          break;
+        }
         const int compare = left_cell.compare(right_cell);
         bool result = false;
         switch (filter_unit->comp()) {

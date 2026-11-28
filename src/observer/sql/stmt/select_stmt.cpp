@@ -14,6 +14,7 @@ See the Mulan PSL v2 for more details. */
 
 #include "sql/stmt/select_stmt.h"
 #include "sql/stmt/filter_stmt.h"
+#include "sql/expr/expression_parser.h"
 #include "common/log/log.h"
 #include "common/lang/string.h"
 #include "storage/common/db.h"
@@ -75,6 +76,11 @@ RC SelectStmt::create(Db *db, const Selects &select_sql, Stmt *&stmt)
     table_map.insert(std::pair<std::string, Table*>(table_name, table));
   }
   
+  Table *default_table = nullptr;
+  if (tables.size() == 1) {
+    default_table = tables[0];
+  }
+
   // collect select items (plain fields and aggregate functions)
   std::vector<SelectStmt::SelectItem> select_items;
   std::vector<Field> query_fields;
@@ -108,6 +114,20 @@ RC SelectStmt::create(Db *db, const Selects &select_sql, Stmt *&stmt)
     const RelAttr &relation_attr = select_sql.attributes[i];
     SelectStmt::SelectItem item;
     item.agg = relation_attr.agg_type;
+
+    // 表达式列：select id, 3*col1/(col2+2) ... 表头用表达式原文
+    if (relation_attr.expr != nullptr) {
+      Expression *expr = nullptr;
+      RC rc = build_expression(db, default_table, &table_map, relation_attr.expr, expr);
+      if (rc != RC::SUCCESS) {
+        LOG_WARN("failed to build projection expression");
+        return rc;
+      }
+      item.expr = expr;
+      item.alias = expression_node_to_string(relation_attr.expr);
+      select_items.push_back(item);
+      continue;
+    }
 
     if (relation_attr.agg_type != 0) {
       has_aggregate = true;
@@ -174,6 +194,9 @@ RC SelectStmt::create(Db *db, const Selects &select_sql, Stmt *&stmt)
     query_fields.clear();
     for (size_t i = 0; i < select_sql.attr_num; i++) {
       const RelAttr &relation_attr = select_sql.attributes[i];
+      if (relation_attr.expr != nullptr) {
+        continue;
+      }
       if (common::is_blank(relation_attr.relation_name) && 0 == strcmp(relation_attr.attribute_name, "*")) {
         for (Table *table : tables) {
           wildcard_fields(table, query_fields);
@@ -217,11 +240,6 @@ RC SelectStmt::create(Db *db, const Selects &select_sql, Stmt *&stmt)
   }
 
   LOG_INFO("got %d tables in from stmt and %d fields in query stmt", tables.size(), query_fields.size());
-
-  Table *default_table = nullptr;
-  if (tables.size() == 1) {
-    default_table = tables[0];
-  }
 
   // create filter statement in `where` statement
   FilterStmt *filter_stmt = nullptr;

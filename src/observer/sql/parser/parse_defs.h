@@ -35,10 +35,31 @@ enum AggType
   AGG_AVG
 };
 
+// 表达式语法树节点类型
+typedef enum
+{
+  EXPR_VALUE_NODE,
+  EXPR_ATTR_NODE,
+  EXPR_UNARY_NODE,   // 一元负号
+  EXPR_BINARY_NODE,  // + - * /
+  EXPR_PAREN_NODE    // 显式括号，仅用于还原表头文本
+} ExprNodeType;
+
+typedef enum
+{
+  EXPR_OP_ADD,
+  EXPR_OP_SUB,
+  EXPR_OP_MUL,
+  EXPR_OP_DIV
+} ExprOp;
+
+typedef struct _ExpressionNode ExpressionNode;
+
 typedef struct {
   char *relation_name;   // relation name (may be NULL) 表名
   char *attribute_name;  // attribute name              属性名
   int agg_type;          // aggregate function type, AGG_NONE for a plain field
+  ExpressionNode *expr;  // 非空表示该 select 项是一个表达式，此时上面两个字段仅作参考
 } RelAttr;
 
 typedef enum {
@@ -67,6 +88,16 @@ typedef struct _Value {
   void *data;     // value
 } Value;
 
+struct _ExpressionNode {
+  ExprNodeType type;
+  ExprOp op;                    // binary/unary 节点的运算符
+  Value value;                  // EXPR_VALUE_NODE 的字面量
+  char *relation_name;          // EXPR_ATTR_NODE 的表名，可为 NULL
+  char *attribute_name;         // EXPR_ATTR_NODE 的字段名
+  ExpressionNode *left;         // EXPR_UNARY_NODE 的操作数 / binary 左操作数
+  ExpressionNode *right;        // binary 右操作数
+};
+
 typedef struct _Condition {
   int left_is_attr;    // TRUE if left-hand side is an attribute
                        // 1时，操作符左边是属性名，0时，是属性值
@@ -77,6 +108,8 @@ typedef struct _Condition {
                        // 1时，操作符右边是属性名，0时，是属性值
   RelAttr right_attr;  // right-hand side attribute if right_is_attr = TRUE 右边的属性
   Value right_value;   // right-hand side value if right_is_attr = FALSE
+  ExpressionNode *left_expr;   // 非空时，条件由表达式树表示（优先级高于上面的简单字段）
+  ExpressionNode *right_expr;  // 同上
 } Condition;
 
 // struct of select

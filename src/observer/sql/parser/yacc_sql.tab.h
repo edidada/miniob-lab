@@ -101,7 +101,8 @@ extern int yydebug;
     PATH = 302,                    /* PATH  */
     SSS = 303,                     /* SSS  */
     STAR = 304,                    /* STAR  */
-    STRING_V = 305                 /* STRING_V  */
+    STRING_V = 305,                /* STRING_V  */
+    NEG = 306                      /* NEG  */
   };
   typedef enum yytokentype yytoken_kind_t;
 #endif
@@ -110,7 +111,7 @@ extern int yydebug;
 #if ! defined YYSTYPE && ! defined YYSTYPE_IS_DECLARED
 union YYSTYPE
 {
-#line 181 "yacc_sql.y"
+#line 268 "yacc_sql.y"
 
   struct _Attr *attr;
   struct _Condition *condition1;
@@ -119,8 +120,9 @@ union YYSTYPE
   int number;
   float floats;
 	char *position;
+	struct _ExpressionNode *expr;
 
-#line 124 "yacc_sql.tab.h"
+#line 126 "yacc_sql.tab.h"
 
 };
 typedef union YYSTYPE YYSTYPE;

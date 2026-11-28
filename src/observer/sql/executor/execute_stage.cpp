@@ -279,9 +279,13 @@ IndexScanOperator *try_to_create_index_scan_operator(FilterStmt *filter_stmt)
 
     Expression *left = filter_unit->left();
     Expression *right = filter_unit->right();
+    // 只有"字段 比较 常量"这种简单条件才能用索引；
+    // 其它形式（如算术表达式、常量之间比较）直接跳过
     if (left->type() == ExprType::FIELD && right->type() == ExprType::VALUE) {
     } else if (left->type() == ExprType::VALUE && right->type() == ExprType::FIELD) {
       std::swap(left, right);
+    } else {
+      continue;
     }
     FieldExpr &left_field_expr = *(FieldExpr *)left;
     const Field &field = left_field_expr.field();
@@ -512,8 +516,12 @@ RC ExecuteStage::do_select(SQLStageEvent *sql_event)
   ProjectOperator project_oper;
   project_oper.add_child(project_child);
   const bool multi_table = tables.size() > 1;
-  for (const Field &field : select_stmt->query_fields()) {
-    project_oper.add_projection(field.table(), field.meta(), multi_table);
+  for (const SelectStmt::SelectItem &item : select_stmt->select_items()) {
+    if (item.expr != nullptr) {
+      project_oper.add_projection_expr(item.expr, item.alias.c_str());
+    } else if (item.field != nullptr) {
+      project_oper.add_projection(item.table, item.field, multi_table);
+    }
   }
   rc = project_oper.open();
   if (rc != RC::SUCCESS) {

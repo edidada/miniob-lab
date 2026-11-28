@@ -50,9 +50,11 @@ int agg_type_of_name(const char *name)
 
 // 词法器没有 ORDER/BY 关键字（不能重新生成 lex.yy.c），所以把 "order by"
 // 替换成已有的 VALUES token，再由 order_clause 规则识别。
+// 另外词法器会把 "-2" 直接吞成一个 NUMBER（[\-]?DIGIT+），使得 col1-2 无法解析成减法，
+// 所以在引号外把 '-' 与后续数字之间补一个空格，让 '-' 变成独立的字符 token。
 char *rewrite_order_by(const char *s)
 {
-	char *out = (char *)malloc(strlen(s) + 1);
+	char *out = (char *)malloc(strlen(s) * 2 + 2);
 	if (out == NULL) {
 		return NULL;
 	}
@@ -63,6 +65,12 @@ char *rewrite_order_by(const char *s)
 		if (c == '\'') {
 			in_quote = !in_quote;
 			out[j++] = c;
+			i++;
+			continue;
+		}
+		if (!in_quote && c == '-' && s[i + 1] >= '0' && s[i + 1] <= '9') {
+			out[j++] = '-';
+			out[j++] = ' ';
 			i++;
 			continue;
 		}
@@ -107,6 +115,85 @@ char *rewrite_order_by(const char *s)
 	}
 	out[j] = '\0';
 	return out;
+}
+
+// ---- 表达式语法树 ----
+static ExpressionNode *expr_node_new(ExprNodeType type)
+{
+	ExpressionNode *node = (ExpressionNode *)calloc(1, sizeof(ExpressionNode));
+	if (node != NULL) {
+		node->type = type;
+	}
+	return node;
+}
+
+static ExpressionNode *expr_node_from_value(Value *value)
+{
+	ExpressionNode *node = expr_node_new(EXPR_VALUE_NODE);
+	if (node == NULL) {
+		return NULL;
+	}
+	node->value.type = value->type;
+	switch (value->type) {
+		case INTS: {
+			int *p = (int *)malloc(sizeof(int));
+			*p = *(int *)value->data;
+			node->value.data = p;
+		} break;
+		case FLOATS: {
+			float *p = (float *)malloc(sizeof(float));
+			*p = *(float *)value->data;
+			node->value.data = p;
+		} break;
+		default: {
+			node->value.data = strdup((const char *)value->data);
+		} break;
+	}
+	return node;
+}
+
+static ExpressionNode *expr_node_from_attr(const char *relation_name, const char *attribute_name)
+{
+	ExpressionNode *node = expr_node_new(EXPR_ATTR_NODE);
+	if (node == NULL) {
+		return NULL;
+	}
+	node->relation_name = relation_name == NULL ? NULL : strdup(relation_name);
+	node->attribute_name = strdup(attribute_name);
+	return node;
+}
+
+static ExpressionNode *expr_node_binary(ExprOp op, ExpressionNode *left, ExpressionNode *right)
+{
+	ExpressionNode *node = expr_node_new(EXPR_BINARY_NODE);
+	if (node == NULL) {
+		return NULL;
+	}
+	node->op = op;
+	node->left = left;
+	node->right = right;
+	return node;
+}
+
+static ExpressionNode *expr_node_unary(ExprOp op, ExpressionNode *operand)
+{
+	ExpressionNode *node = expr_node_new(EXPR_UNARY_NODE);
+	if (node == NULL) {
+		return NULL;
+	}
+	node->op = op;
+	node->left = operand;
+	return node;
+}
+
+static ExpressionNode *expr_node_paren(ExpressionNode *operand)
+{
+	ExpressionNode *node = expr_node_new(EXPR_PAREN_NODE);
+	if (node == NULL) {
+		return NULL;
+	}
+	node->left = operand;
+	return node;
 }
 
 void yyerror(yyscan_t scanner, const char *str)
@@ -186,6 +273,7 @@ ParserContext *get_context(yyscan_t scanner)
   int number;
   float floats;
 	char *position;
+	struct _ExpressionNode *expr;
 }
 
 %token <number> NUMBER
@@ -201,6 +289,13 @@ ParserContext *get_context(yyscan_t scanner)
 %type <condition1> condition;
 %type <value1> value;
 %type <number> number;
+%type <expr> expr;
+%type <value1> signed_value;
+
+// 算术运算优先级：+ - 最低，* / 次之，一元负号最高
+%left '+' '-'
+%left STAR '/'
+%right NEG
 
 %%
 
@@ -379,7 +474,7 @@ row_list:
     ;
 
 row:
-    LBRACE { CONTEXT->row_start = CONTEXT->value_length; } value value_list RBRACE
+    LBRACE { CONTEXT->row_start = CONTEXT->value_length; } signed_value value_list RBRACE
     {
       CONTEXT->row_value_num[CONTEXT->row_num++] = CONTEXT->value_length - CONTEXT->row_start;
     }
@@ -387,7 +482,7 @@ row:
 
 value_list:
     /* empty */
-    | COMMA value value_list  { 
+    | COMMA signed_value value_list  { 
   		// CONTEXT->values[CONTEXT->value_length++] = *$2;
 	  }
     ;
@@ -403,7 +498,61 @@ value:
   		value_init_string(&CONTEXT->values[CONTEXT->value_length++], $1);
 		}
     ;
-    
+
+/* insert/update 里的常量可以是负数：词法器已经不允许把 "-2" 吞成一个 NUMBER，
+   所以这里用独立的 '-' token 处理 */
+signed_value:
+    value { $$ = &CONTEXT->values[CONTEXT->value_length - 1]; }
+    | '-' value {
+        Value *v = &CONTEXT->values[CONTEXT->value_length - 1];
+        if (v->type == INTS) {
+          *(int *)v->data = -*(int *)v->data;
+        } else if (v->type == FLOATS) {
+          *(float *)v->data = -*(float *)v->data;
+        } else {
+          CONTEXT->ssql->flag = SCF_ERROR;
+          yyerror(scanner, "minus only applies to number");
+        }
+        $$ = v;
+      }
+    ;
+
+/* 算术表达式。词法器里 '+' '/' 是字符 token，'*' 是 STAR token */
+expr:
+    value {
+        Value *v = &CONTEXT->values[CONTEXT->value_length - 1];
+        $$ = expr_node_from_value(v);
+        if ($$ == NULL) { CONTEXT->ssql->flag = SCF_ERROR; }
+      }
+    | ID {
+        $$ = expr_node_from_attr(NULL, $1);
+        free($1);
+      }
+    | ID DOT ID {
+        $$ = expr_node_from_attr($1, $3);
+        free($1);
+        free($3);
+      }
+    | LBRACE expr RBRACE {
+        $$ = expr_node_paren($2);
+      }
+    | '-' expr %prec NEG {
+        $$ = expr_node_unary(EXPR_OP_SUB, $2);
+      }
+    | expr '+' expr {
+        $$ = expr_node_binary(EXPR_OP_ADD, $1, $3);
+      }
+    | expr '-' expr {
+        $$ = expr_node_binary(EXPR_OP_SUB, $1, $3);
+      }
+    | expr STAR expr {
+        $$ = expr_node_binary(EXPR_OP_MUL, $1, $3);
+      }
+    | expr '/' expr {
+        $$ = expr_node_binary(EXPR_OP_DIV, $1, $3);
+      }
+    ;
+
 delete:		/*  delete 语句的语法解析树*/
     DELETE FROM ID where SEMICOLON 
 		{
@@ -415,7 +564,7 @@ delete:		/*  delete 语句的语法解析树*/
     }
     ;
 update:			/*  update 语句的语法解析树*/
-    UPDATE ID SET ID EQ value where SEMICOLON
+    UPDATE ID SET ID EQ signed_value where SEMICOLON
 		{
 			CONTEXT->ssql->flag = SCF_UPDATE;//"update";
 			Value *value = &CONTEXT->values[0];
@@ -555,18 +704,15 @@ select_item:
 			relation_attr_init(&attr, NULL, "*");
 			selects_append_attribute(&CONTEXT->ssql->sstr.selection, &attr);
 		}
-    | ID {
+    | expr {
 			RelAttr attr;
-			relation_attr_init(&attr, NULL, $1);
+			if ($1 != NULL && $1->type == EXPR_ATTR_NODE) {
+				relation_attr_init(&attr, $1->relation_name, $1->attribute_name);
+			} else {
+				relation_attr_init(&attr, NULL, "");
+				attr.expr = $1;
+			}
 			selects_append_attribute(&CONTEXT->ssql->sstr.selection, &attr);
-			free($1);
-		}
-  	| ID DOT ID {
-			RelAttr attr;
-			relation_attr_init(&attr, $1, $3);
-			selects_append_attribute(&CONTEXT->ssql->sstr.selection, &attr);
-			free($1);
-			free($3);
 		}
 	| ID LBRACE STAR RBRACE {
 			int agg = agg_type_of_name($1);
@@ -668,150 +814,15 @@ condition_list:
 			}
     ;
 condition:
-    ID comOp value 
+    expr comOp expr
 		{
-			RelAttr left_attr;
-			relation_attr_init(&left_attr, NULL, $1);
-
-			Value *right_value = &CONTEXT->values[CONTEXT->value_length - 1];
-
 			Condition condition;
-			condition_init(&condition, CONTEXT->comp, 1, &left_attr, NULL, 0, NULL, right_value);
+			memset(&condition, 0, sizeof(condition));
+			condition.comp = CONTEXT->comp;
+			condition.left_expr = $1;
+			condition.right_expr = $3;
 			CONTEXT->conditions[CONTEXT->condition_length++] = condition;
-			// $$ = ( Condition *)malloc(sizeof( Condition));
-			// $$->left_is_attr = 1;
-			// $$->left_attr.relation_name = NULL;
-			// $$->left_attr.attribute_name= $1;
-			// $$->comp = CONTEXT->comp;
-			// $$->right_is_attr = 0;
-			// $$->right_attr.relation_name = NULL;
-			// $$->right_attr.attribute_name = NULL;
-			// $$->right_value = *$3;
-
 		}
-		|value comOp value 
-		{
-			Value *left_value = &CONTEXT->values[CONTEXT->value_length - 2];
-			Value *right_value = &CONTEXT->values[CONTEXT->value_length - 1];
-
-			Condition condition;
-			condition_init(&condition, CONTEXT->comp, 0, NULL, left_value, 0, NULL, right_value);
-			CONTEXT->conditions[CONTEXT->condition_length++] = condition;
-			// $$ = ( Condition *)malloc(sizeof( Condition));
-			// $$->left_is_attr = 0;
-			// $$->left_attr.relation_name=NULL;
-			// $$->left_attr.attribute_name=NULL;
-			// $$->left_value = *$1;
-			// $$->comp = CONTEXT->comp;
-			// $$->right_is_attr = 0;
-			// $$->right_attr.relation_name = NULL;
-			// $$->right_attr.attribute_name = NULL;
-			// $$->right_value = *$3;
-
-		}
-		|ID comOp ID 
-		{
-			RelAttr left_attr;
-			relation_attr_init(&left_attr, NULL, $1);
-			RelAttr right_attr;
-			relation_attr_init(&right_attr, NULL, $3);
-
-			Condition condition;
-			condition_init(&condition, CONTEXT->comp, 1, &left_attr, NULL, 1, &right_attr, NULL);
-			CONTEXT->conditions[CONTEXT->condition_length++] = condition;
-			// $$=( Condition *)malloc(sizeof( Condition));
-			// $$->left_is_attr = 1;
-			// $$->left_attr.relation_name=NULL;
-			// $$->left_attr.attribute_name=$1;
-			// $$->comp = CONTEXT->comp;
-			// $$->right_is_attr = 1;
-			// $$->right_attr.relation_name=NULL;
-			// $$->right_attr.attribute_name=$3;
-
-		}
-    |value comOp ID
-		{
-			Value *left_value = &CONTEXT->values[CONTEXT->value_length - 1];
-			RelAttr right_attr;
-			relation_attr_init(&right_attr, NULL, $3);
-
-			Condition condition;
-			condition_init(&condition, CONTEXT->comp, 0, NULL, left_value, 1, &right_attr, NULL);
-			CONTEXT->conditions[CONTEXT->condition_length++] = condition;
-
-			// $$=( Condition *)malloc(sizeof( Condition));
-			// $$->left_is_attr = 0;
-			// $$->left_attr.relation_name=NULL;
-			// $$->left_attr.attribute_name=NULL;
-			// $$->left_value = *$1;
-			// $$->comp=CONTEXT->comp;
-			
-			// $$->right_is_attr = 1;
-			// $$->right_attr.relation_name=NULL;
-			// $$->right_attr.attribute_name=$3;
-		
-		}
-    |ID DOT ID comOp value
-		{
-			RelAttr left_attr;
-			relation_attr_init(&left_attr, $1, $3);
-			Value *right_value = &CONTEXT->values[CONTEXT->value_length - 1];
-
-			Condition condition;
-			condition_init(&condition, CONTEXT->comp, 1, &left_attr, NULL, 0, NULL, right_value);
-			CONTEXT->conditions[CONTEXT->condition_length++] = condition;
-
-			// $$=( Condition *)malloc(sizeof( Condition));
-			// $$->left_is_attr = 1;
-			// $$->left_attr.relation_name=$1;
-			// $$->left_attr.attribute_name=$3;
-			// $$->comp=CONTEXT->comp;
-			// $$->right_is_attr = 0;   //属性值
-			// $$->right_attr.relation_name=NULL;
-			// $$->right_attr.attribute_name=NULL;
-			// $$->right_value =*$5;			
-							
-    }
-    |value comOp ID DOT ID
-		{
-			Value *left_value = &CONTEXT->values[CONTEXT->value_length - 1];
-
-			RelAttr right_attr;
-			relation_attr_init(&right_attr, $3, $5);
-
-			Condition condition;
-			condition_init(&condition, CONTEXT->comp, 0, NULL, left_value, 1, &right_attr, NULL);
-			CONTEXT->conditions[CONTEXT->condition_length++] = condition;
-			// $$=( Condition *)malloc(sizeof( Condition));
-			// $$->left_is_attr = 0;//属性值
-			// $$->left_attr.relation_name=NULL;
-			// $$->left_attr.attribute_name=NULL;
-			// $$->left_value = *$1;
-			// $$->comp =CONTEXT->comp;
-			// $$->right_is_attr = 1;//属性
-			// $$->right_attr.relation_name = $3;
-			// $$->right_attr.attribute_name = $5;
-									
-    }
-    |ID DOT ID comOp ID DOT ID
-		{
-			RelAttr left_attr;
-			relation_attr_init(&left_attr, $1, $3);
-			RelAttr right_attr;
-			relation_attr_init(&right_attr, $5, $7);
-
-			Condition condition;
-			condition_init(&condition, CONTEXT->comp, 1, &left_attr, NULL, 1, &right_attr, NULL);
-			CONTEXT->conditions[CONTEXT->condition_length++] = condition;
-			// $$=( Condition *)malloc(sizeof( Condition));
-			// $$->left_is_attr = 1;		//属性
-			// $$->left_attr.relation_name=$1;
-			// $$->left_attr.attribute_name=$3;
-			// $$->comp =CONTEXT->comp;
-			// $$->right_is_attr = 1;		//属性
-			// $$->right_attr.relation_name=$5;
-			// $$->right_attr.attribute_name=$7;
-    }
     ;
 
 comOp:

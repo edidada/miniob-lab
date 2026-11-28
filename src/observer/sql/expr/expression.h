@@ -17,6 +17,7 @@ See the Mulan PSL v2 for more details. */
 #include <cstring>
 
 #include "storage/common/field.h"
+#include "sql/parser/parse_defs.h"
 #include "sql/expr/tuple_cell.h"
 
 class Tuple;
@@ -25,6 +26,8 @@ enum class ExprType {
   NONE,
   FIELD,
   VALUE,
+  ARITHMETIC,
+  UNARY,
 };
 
 class Expression
@@ -136,4 +139,69 @@ private:
   float float_value_ = 0;
   char char_value_[16] = {0};
   TupleCell tuple_cell_;
+};
+
+// 二元算术表达式：+ - * /。整数运算保持整数（除法除外，除法一律按浮点算，
+// 与测试期望一致：5/4 = 1.25）
+class ArithmeticExpr : public Expression
+{
+public:
+  ArithmeticExpr(Expression *left, Expression *right, ExprOp op) : left_(left), right_(right), op_(op)
+  {}
+
+  ~ArithmeticExpr() override
+  {
+    delete left_;
+    delete right_;
+  }
+
+  RC get_value(const Tuple &tuple, TupleCell &cell) const override;
+  ExprType type() const override
+  {
+    return ExprType::ARITHMETIC;
+  }
+
+  ExprOp op() const
+  {
+    return op_;
+  }
+  const Expression *left() const
+  {
+    return left_;
+  }
+  const Expression *right() const
+  {
+    return right_;
+  }
+
+private:
+  Expression *left_ = nullptr;
+  Expression *right_ = nullptr;
+  ExprOp op_ = EXPR_OP_ADD;
+  mutable int int_result_ = 0;
+  mutable float float_result_ = 0;
+};
+
+// 一元负号
+class UnaryExpr : public Expression
+{
+public:
+  explicit UnaryExpr(Expression *operand) : operand_(operand)
+  {}
+
+  ~UnaryExpr() override
+  {
+    delete operand_;
+  }
+
+  RC get_value(const Tuple &tuple, TupleCell &cell) const override;
+  ExprType type() const override
+  {
+    return ExprType::UNARY;
+  }
+
+private:
+  Expression *operand_ = nullptr;
+  mutable int int_result_ = 0;
+  mutable float float_result_ = 0;
 };

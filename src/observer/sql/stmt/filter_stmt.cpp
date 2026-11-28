@@ -16,6 +16,7 @@ See the Mulan PSL v2 for more details. */
 #include "common/log/log.h"
 #include "common/lang/string.h"
 #include "sql/stmt/filter_stmt.h"
+#include "sql/expr/expression_parser.h"
 #include "common/date_utils.h"
 #include "storage/common/db.h"
 #include "storage/common/table.h"
@@ -79,15 +80,81 @@ RC get_table_and_field(Db *db, Table *default_table, std::unordered_map<std::str
   return RC::SUCCESS;
 }
 
+// 日期字段与字符串字面量比较时，需要把字面量按日历解析成内部日期值
+static RC convert_date_literal(const Expression *field_side, Expression *&value_side)
+{
+  if (field_side->type() != ExprType::FIELD || value_side->type() != ExprType::VALUE) {
+    return RC::SUCCESS;
+  }
+  const FieldExpr *field_expr = static_cast<const FieldExpr *>(field_side);
+  if (field_expr->field().meta()->type() != DATES) {
+    return RC::SUCCESS;
+  }
+  ValueExpr *value_expr = static_cast<ValueExpr *>(value_side);
+  TupleCell cell;
+  value_expr->get_tuple_cell(cell);
+  if (cell.attr_type() != CHARS) {
+    return RC::SUCCESS;
+  }
+
+  int date_value = 0;
+  if (!parse_date(cell.data(), date_value)) {
+    LOG_WARN("invalid date literal: %s", cell.data());
+    return RC::INVALID_ARGUMENT;
+  }
+  delete value_expr;
+  Value value;
+  value.type = DATES;
+  value.data = &date_value;
+  value_side = new ValueExpr(value);
+  return RC::SUCCESS;
+}
+
 RC FilterStmt::create_filter_unit(Db *db, Table *default_table, std::unordered_map<std::string, Table *> *tables,
 				  const Condition &condition, FilterUnit *&filter_unit)
 {
   RC rc = RC::SUCCESS;
-  
+
   CompOp comp = condition.comp;
   if (comp < EQUAL_TO || comp >= NO_OP) {
     LOG_WARN("invalid compare operator : %d", comp);
     return RC::INVALID_ARGUMENT;
+  }
+
+  // 表达式条件（算术表达式/括号/多表表达式）走通用的表达式求值路径
+  if (condition.left_expr != nullptr && condition.right_expr != nullptr) {
+    Expression *left = nullptr;
+    Expression *right = nullptr;
+    rc = build_expression(db, default_table, tables, condition.left_expr, left);
+    if (rc != RC::SUCCESS) {
+      LOG_WARN("failed to build left expression");
+      return rc;
+    }
+    rc = build_expression(db, default_table, tables, condition.right_expr, right);
+    if (rc != RC::SUCCESS) {
+      LOG_WARN("failed to build right expression");
+      delete left;
+      return rc;
+    }
+
+    rc = convert_date_literal(left, right);
+    if (rc != RC::SUCCESS) {
+      delete left;
+      delete right;
+      return rc;
+    }
+    rc = convert_date_literal(right, left);
+    if (rc != RC::SUCCESS) {
+      delete left;
+      delete right;
+      return rc;
+    }
+
+    filter_unit = new FilterUnit;
+    filter_unit->set_comp(comp);
+    filter_unit->set_left(left);
+    filter_unit->set_right(right);
+    return RC::SUCCESS;
   }
 
   Value left_value = condition.left_value;

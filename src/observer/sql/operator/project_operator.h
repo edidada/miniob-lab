@@ -26,6 +26,8 @@ public:
   virtual ~ProjectOperator() = default;
 
   void add_projection(const Table *table, const FieldMeta *field, bool with_table_name = false);
+  // 表达式列。这里会接管 expr 的所有权（TupleCellSpec 析构时会 delete）
+  void add_projection_expr(Expression *expr, const char *alias);
 
   RC open() override;
   RC next() override;

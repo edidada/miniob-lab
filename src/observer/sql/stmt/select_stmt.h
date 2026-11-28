@@ -22,6 +22,7 @@ See the Mulan PSL v2 for more details. */
 #include "storage/common/field.h"
 
 class FieldMeta;
+class Expression;
 class FilterStmt;
 class Db;
 class Table;
@@ -50,6 +51,7 @@ public:
     int agg = 0;                   // AggType, 0 for a plain field
     const Table *table = nullptr;  // null for count(*)
     const FieldMeta *field = nullptr;
+    Expression *expr = nullptr;    // 非空时该列是表达式（由 ProjectOperator 接管所有权）
     std::string alias;
   };
 

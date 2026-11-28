@@ -25,6 +25,7 @@ extern "C" {
 void relation_attr_init(RelAttr *relation_attr, const char *relation_name, const char *attribute_name)
 {
   relation_attr->agg_type = 0;
+  relation_attr->expr = nullptr;
   if (relation_name != nullptr) {
     relation_attr->relation_name = strdup(relation_name);
   } else {

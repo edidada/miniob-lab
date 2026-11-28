@@ -69,6 +69,18 @@ void ProjectOperator::add_projection(const Table *table, const FieldMeta *field_
   tuple_.add_cell_spec(spec);
 }
 
+void ProjectOperator::add_projection_expr(Expression *expr, const char *alias)
+{
+  TupleCellSpec *spec = new TupleCellSpec(expr);
+  if (alias != nullptr) {
+    const size_t len = strlen(alias);
+    char *alias_buf = new char[len + 1];
+    memcpy(alias_buf, alias, len + 1);
+    spec->set_alias(alias_buf);
+  }
+  tuple_.add_cell_spec(spec);
+}
+
 RC ProjectOperator::tuple_cell_spec_at(int index, const TupleCellSpec *&spec) const
 {
   return tuple_.cell_spec_at(index, spec);
