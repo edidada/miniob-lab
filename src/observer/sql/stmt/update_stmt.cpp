@@ -68,6 +68,7 @@ RC UpdateStmt::create(Db *db, const Updates &update, Stmt *&stmt)
     }
     converted.type = DATES;
     converted.data = date_value;
+    converted.is_null = 0;
   } else if (field_meta->type() != update.value.type) {
     LOG_WARN("field type mismatch. table=%s, field=%s, field type=%d, value type=%d",
         table_name, update.attribute_name, field_meta->type(), update.value.type);

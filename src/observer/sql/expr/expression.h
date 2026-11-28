@@ -85,6 +85,13 @@ public:
   ValueExpr() = default;
   ValueExpr(const Value &value)
   {
+    if (value.is_null) {
+      int_value_ = 0;
+      tuple_cell_.set_type(INTS);
+      tuple_cell_.set_data(reinterpret_cast<char *>(&int_value_));
+      tuple_cell_.set_null(true);
+      return;
+    }
     const char *src = static_cast<const char *>(value.data);
     switch (value.type) {
       case INTS: {

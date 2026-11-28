@@ -20,6 +20,10 @@ See the Mulan PSL v2 for more details. */
 
 void TupleCell::to_string(std::ostream &os) const
 {
+  if (is_null_) {
+    os << "NULL";
+    return;
+  }
   switch (attr_type_) {
   case INTS: {
     os << *(int *)data_;
@@ -46,6 +50,10 @@ void TupleCell::to_string(std::ostream &os) const
 
 int TupleCell::compare(const TupleCell &other) const
 {
+  // null 与任何值比较都是 unknown，调用方会先用 is_null() 判掉
+  if (this->is_null_ || other.is_null_) {
+    return 1;
+  }
   if (this->attr_type_ == DATES || other.attr_type_ == DATES) {
     int this_date = 0;
     int other_date = 0;

@@ -20,6 +20,7 @@ See the Mulan PSL v2 for more details. */
 #include <cstring>
 
 #include "storage/common/table.h"
+#include "storage/common/null_value.h"
 #include "storage/common/table_meta.h"
 #include "common/log/log.h"
 #include "common/lang/string.h"
@@ -311,6 +312,13 @@ RC Table::make_record(int value_num, const Value *values, char *&record_out)
   for (int i = 0; i < value_num; i++) {
     const FieldMeta *field = table_meta_.field(i + normal_field_start_index);
     const Value &value = values[i];
+    if (value.is_null) {
+      if (!field->nullable()) {
+        LOG_WARN("field %s of table %s is not null", field->name(), table_meta_.name());
+        return RC::SCHEMA_FIELD_TYPE_MISMATCH;
+      }
+      continue;
+    }
     if (field->type() != value.type) {
       LOG_ERROR("Invalid value type. table name =%s, field name=%s, type=%d, but given=%d",
           table_meta_.name(),
@@ -328,6 +336,10 @@ RC Table::make_record(int value_num, const Value *values, char *&record_out)
   for (int i = 0; i < value_num; i++) {
     const FieldMeta *field = table_meta_.field(i + normal_field_start_index);
     const Value &value = values[i];
+    if (value.is_null) {
+      set_value_null(field->type(), record + field->offset(), field->len());
+      continue;
+    }
     if (value.type == CHARS) {
       // the literal may be shorter than the column, so copy only what exists and zero the rest
       const size_t src_len = strlen(static_cast<const char *>(value.data));

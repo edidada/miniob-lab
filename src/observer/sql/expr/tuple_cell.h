@@ -47,7 +47,11 @@ public:
   {
     return attr_type_;
   }
+
+  void set_null(bool is_null) { is_null_ = is_null; }
+  bool is_null() const { return is_null_; }
 private:
   AttrType attr_type_ = UNDEFINED;
   char *data_ = nullptr; // real data. no need to move to field_meta.offset
+  bool is_null_ = false;
 };

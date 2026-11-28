@@ -71,9 +71,26 @@ bool PredicateOperator::do_predicate(RowTuple &tuple)
     CompOp comp = filter_unit->comp();
     TupleCell left_cell;
     TupleCell right_cell;
+
+    // is null / is not null 只用左操作数
+    if (comp == IS_NULL || comp == IS_NOT_NULL) {
+      if (left_expr->get_value(tuple, left_cell) != RC::SUCCESS) {
+        return false;
+      }
+      const bool expect_null = (comp == IS_NULL);
+      if (left_cell.is_null() != expect_null) {
+        return false;
+      }
+      continue;
+    }
     // 表达式求值失败（例如除零）时，这个条件视为不成立
     if (left_expr->get_value(tuple, left_cell) != RC::SUCCESS ||
         right_expr->get_value(tuple, right_cell) != RC::SUCCESS) {
+      return false;
+    }
+
+    // 与 null 的比较结果一律是 unknown，过滤条件不成立
+    if (left_cell.is_null() || right_cell.is_null()) {
       return false;
     }
 

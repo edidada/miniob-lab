@@ -69,6 +69,8 @@ typedef enum {
   LESS_THAN,    //"<"     3
   GREAT_EQUAL,  //">="    4
   GREAT_THAN,   //">"     5
+  IS_NULL,      //"is null"
+  IS_NOT_NULL,  //"is not null"
   NO_OP
 } CompOp;
 
@@ -86,6 +88,7 @@ typedef enum
 typedef struct _Value {
   AttrType type;  // type of value
   void *data;     // value
+  int is_null;    // 1 表示这是 SQL 的 null 字面量（此时 type 无意义）
 } Value;
 
 struct _ExpressionNode {
@@ -156,6 +159,7 @@ typedef struct {
   char *name;     // Attribute name
   AttrType type;  // Type of attribute
   size_t length;  // Length of attribute
+  int nullable;   // 1: 允许 null（默认），0: not null
 } AttrInfo;
 
 // struct of craete_table
@@ -248,7 +252,8 @@ void condition_init(Condition *condition, CompOp comp, int left_is_attr, RelAttr
     int right_is_attr, RelAttr *right_attr, Value *right_value);
 void condition_destroy(Condition *condition);
 
-void attr_info_init(AttrInfo *attr_info, const char *name, AttrType type, size_t length);
+void attr_info_init(AttrInfo *attr_info, const char *name, AttrType type, size_t length, int nullable);
+void value_init_null(Value *value);
 void attr_info_destroy(AttrInfo *attr_info);
 
 void selects_init(Selects *selects, ...);

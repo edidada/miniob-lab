@@ -22,6 +22,7 @@ See the Mulan PSL v2 for more details. */
 #include "sql/expr/tuple_cell.h"
 #include "sql/expr/expression.h"
 #include "storage/common/record.h"
+#include "storage/common/null_value.h"
 
 class Table;
 
@@ -115,8 +116,10 @@ public:
     const TupleCellSpec *spec = speces_[index];
     FieldExpr *field_expr = (FieldExpr *)spec->expression();
     const FieldMeta *field_meta = field_expr->field().meta();
+    const char *data = this->record_->data() + field_meta->offset();
     cell.set_type(field_meta->type());
-    cell.set_data(this->record_->data() + field_meta->offset());
+    cell.set_data(const_cast<char *>(data));
+    cell.set_null(value_is_null(field_meta->type(), data, field_meta->len()));
     return RC::SUCCESS;
   }
 

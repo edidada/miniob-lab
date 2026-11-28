@@ -111,8 +111,24 @@ RC NestedLoopJoinOperator::next()
         }
         TupleCell left_cell;
         TupleCell right_cell;
+        CompOp comp = filter_unit->comp();
+        if (comp == IS_NULL || comp == IS_NOT_NULL) {
+          if (filter_unit->left()->get_value(joined_tuple_, left_cell) != RC::SUCCESS) {
+            matched = false;
+            break;
+          }
+          if (left_cell.is_null() != (comp == IS_NULL)) {
+            matched = false;
+            break;
+          }
+          continue;
+        }
         if (filter_unit->left()->get_value(joined_tuple_, left_cell) != RC::SUCCESS ||
             filter_unit->right()->get_value(joined_tuple_, right_cell) != RC::SUCCESS) {
+          matched = false;
+          break;
+        }
+        if (left_cell.is_null() || right_cell.is_null()) {
           matched = false;
           break;
         }

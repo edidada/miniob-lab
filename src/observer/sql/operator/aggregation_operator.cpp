@@ -115,8 +115,8 @@ RC AggregationOperator::open()
       }
 
       AggState &state = bucket->states[i];
-      state.count++;
-      if (item.agg == 1) {  // count
+      if (item.agg == 1 && item.field == nullptr) {  // count(*)
+        state.count++;
         state.type = INTS;
         continue;
       }
@@ -127,6 +127,15 @@ RC AggregationOperator::open()
       if (rc != RC::SUCCESS) {
         LOG_WARN("failed to find field. field=%s", item.field->name());
         return rc;
+      }
+      // null 值不参与任何聚合计算（count/min/max/sum/avg 都跳过）
+      if (cell.is_null()) {
+        continue;
+      }
+      state.count++;
+      if (item.agg == 1) {  // count
+        state.type = INTS;
+        continue;
       }
       state.type = item.field->type();
 
@@ -216,9 +225,15 @@ RC AggregationOperator::next()
         output_cells_.emplace_back(item.field->type(), state.value.data());
       } else {
         output_cells_.emplace_back(item.field->type(), nullptr);
+        output_cells_.back().set_null(true);
       }
     } break;
     case 4: { // sum
+      if (state.count == 0) {
+        output_cells_.emplace_back(item.field->type(), nullptr);
+        output_cells_.back().set_null(true);
+        break;
+      }
       agg_storage_[i].resize(sizeof(float));
       if (item.field->type() == INTS) {
         agg_storage_[i].resize(sizeof(int));
@@ -230,6 +245,11 @@ RC AggregationOperator::next()
       }
     } break;
     case 5: { // avg
+      if (state.count == 0) {
+        output_cells_.emplace_back(item.field->type(), nullptr);
+        output_cells_.back().set_null(true);
+        break;
+      }
       agg_storage_[i].resize(sizeof(float));
       double avg = state.count == 0 ? 0.0 : state.sum / state.count;
       avg = static_cast<double>(static_cast<long long>(avg * 100 + (avg >= 0 ? 0.5 : -0.5))) / 100;

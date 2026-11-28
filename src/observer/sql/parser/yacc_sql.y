@@ -21,6 +21,7 @@ typedef struct ParserContext {
   size_t row_num;
   size_t row_value_num[MAX_NUM];
   size_t row_start;
+  int nullable;
   Condition conditions[MAX_NUM];
   CompOp comp;
 	char id[MAX_NUM];
@@ -132,6 +133,12 @@ static ExpressionNode *expr_node_from_value(Value *value)
 	ExpressionNode *node = expr_node_new(EXPR_VALUE_NODE);
 	if (node == NULL) {
 		return NULL;
+	}
+	if (value->is_null) {
+		node->value.type = UNDEFINED;
+		node->value.data = NULL;
+		node->value.is_null = 1;
+		return node;
 	}
 	node->value.type = value->type;
 	switch (value->type) {
@@ -408,10 +415,10 @@ attr_def_list:
     ;
     
 attr_def:
-    ID_get type LBRACE number RBRACE 
+    ID_get type LBRACE number RBRACE attr_constraint
 		{
 			AttrInfo attribute;
-			attr_info_init(&attribute, CONTEXT->id, $2, $4);
+			attr_info_init(&attribute, CONTEXT->id, $2, $4, CONTEXT->nullable);
 			create_table_append_attribute(&CONTEXT->ssql->sstr.create_table, &attribute);
 			// CONTEXT->ssql->sstr.create_table.attributes[CONTEXT->value_length].name =(char*)malloc(sizeof(char));
 			// strcpy(CONTEXT->ssql->sstr.create_table.attributes[CONTEXT->value_length].name, CONTEXT->id); 
@@ -419,10 +426,10 @@ attr_def:
 			// CONTEXT->ssql->sstr.create_table.attributes[CONTEXT->value_length].length = $4;
 			CONTEXT->value_length++;
 		}
-    |ID_get type
+    |ID_get type attr_constraint
 		{
 			AttrInfo attribute;
-			attr_info_init(&attribute, CONTEXT->id, $2, 4);
+			attr_info_init(&attribute, CONTEXT->id, $2, 4, CONTEXT->nullable);
 			create_table_append_attribute(&CONTEXT->ssql->sstr.create_table, &attribute);
 			// CONTEXT->ssql->sstr.create_table.attributes[CONTEXT->value_length].name=(char*)malloc(sizeof(char));
 			// strcpy(CONTEXT->ssql->sstr.create_table.attributes[CONTEXT->value_length].name, CONTEXT->id); 
@@ -431,6 +438,30 @@ attr_def:
 			CONTEXT->value_length++;
 		}
     ;
+/* 字段约束：默认可以存 null，"not null" 表示不允许 */
+attr_constraint:
+    /* empty */ { CONTEXT->nullable = 0; }
+    | ID {
+        if (0 == strcasecmp($1, "nullable")) {
+          CONTEXT->nullable = 1;
+        } else {
+          CONTEXT->ssql->flag = SCF_ERROR;
+          yyerror(scanner, "expect nullable or not null");
+        }
+        free($1);
+      }
+    | ID ID {
+        if (0 == strcasecmp($1, "not") && 0 == strcasecmp($2, "null")) {
+          CONTEXT->nullable = 0;
+        } else {
+          CONTEXT->ssql->flag = SCF_ERROR;
+          yyerror(scanner, "expect nullable or not null");
+        }
+        free($1);
+        free($2);
+      }
+    ;
+
 number:
 		NUMBER {$$ = $1;}
 		;
@@ -515,6 +546,16 @@ signed_value:
         }
         $$ = v;
       }
+    | ID {
+        if (0 != strcasecmp($1, "null")) {
+          CONTEXT->ssql->flag = SCF_ERROR;
+          yyerror(scanner, "expect null");
+        }
+        free($1);
+        Value *v = &CONTEXT->values[CONTEXT->value_length++];
+        value_init_null(v);
+        $$ = v;
+      }
     ;
 
 /* 算术表达式。词法器里 '+' '/' 是字符 token，'*' 是 STAR token */
@@ -525,7 +566,13 @@ expr:
         if ($$ == NULL) { CONTEXT->ssql->flag = SCF_ERROR; }
       }
     | ID {
-        $$ = expr_node_from_attr(NULL, $1);
+        if (0 == strcasecmp($1, "null")) {
+          Value null_value;
+          value_init_null(&null_value);
+          $$ = expr_node_from_value(&null_value);
+        } else {
+          $$ = expr_node_from_attr(NULL, $1);
+        }
         free($1);
       }
     | ID DOT ID {
@@ -822,6 +869,41 @@ condition:
 			condition.left_expr = $1;
 			condition.right_expr = $3;
 			CONTEXT->conditions[CONTEXT->condition_length++] = condition;
+		}
+    | expr ID ID
+		{
+			Condition condition;
+			memset(&condition, 0, sizeof(condition));
+			if (0 == strcasecmp($2, "is") && 0 == strcasecmp($3, "null")) {
+				condition.comp = IS_NULL;
+			} else if (0 == strcasecmp($2, "not") && 0 == strcasecmp($3, "null")) {
+				condition.comp = IS_NOT_NULL;
+			} else {
+				CONTEXT->ssql->flag = SCF_ERROR;
+				yyerror(scanner, "expect is null or is not null");
+			}
+			condition.left_expr = $1;
+			condition.right_expr = NULL;
+			CONTEXT->conditions[CONTEXT->condition_length++] = condition;
+			free($2);
+			free($3);
+		}
+    | expr ID ID ID
+		{
+			Condition condition;
+			memset(&condition, 0, sizeof(condition));
+			if (0 == strcasecmp($2, "is") && 0 == strcasecmp($3, "not") && 0 == strcasecmp($4, "null")) {
+				condition.comp = IS_NOT_NULL;
+			} else {
+				CONTEXT->ssql->flag = SCF_ERROR;
+				yyerror(scanner, "expect is not null");
+			}
+			condition.left_expr = $1;
+			condition.right_expr = NULL;
+			CONTEXT->conditions[CONTEXT->condition_length++] = condition;
+			free($2);
+			free($3);
+			free($4);
 		}
     ;
 

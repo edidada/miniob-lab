@@ -83,6 +83,9 @@ RC get_table_and_field(Db *db, Table *default_table, std::unordered_map<std::str
 // 日期字段与字符串字面量比较时，需要把字面量按日历解析成内部日期值
 static RC convert_date_literal(const Expression *field_side, Expression *&value_side)
 {
+  if (field_side == nullptr || value_side == nullptr) {
+    return RC::SUCCESS;
+  }
   if (field_side->type() != ExprType::FIELD || value_side->type() != ExprType::VALUE) {
     return RC::SUCCESS;
   }
@@ -103,9 +106,7 @@ static RC convert_date_literal(const Expression *field_side, Expression *&value_
     return RC::INVALID_ARGUMENT;
   }
   delete value_expr;
-  Value value;
-  value.type = DATES;
-  value.data = &date_value;
+  Value value = {DATES, &date_value, 0};
   value_side = new ValueExpr(value);
   return RC::SUCCESS;
 }
@@ -122,7 +123,8 @@ RC FilterStmt::create_filter_unit(Db *db, Table *default_table, std::unordered_m
   }
 
   // 表达式条件（算术表达式/括号/多表表达式）走通用的表达式求值路径
-  if (condition.left_expr != nullptr && condition.right_expr != nullptr) {
+  const bool is_null_comp = (comp == IS_NULL || comp == IS_NOT_NULL);
+  if (condition.left_expr != nullptr && (condition.right_expr != nullptr || is_null_comp)) {
     Expression *left = nullptr;
     Expression *right = nullptr;
     rc = build_expression(db, default_table, tables, condition.left_expr, left);
@@ -130,11 +132,13 @@ RC FilterStmt::create_filter_unit(Db *db, Table *default_table, std::unordered_m
       LOG_WARN("failed to build left expression");
       return rc;
     }
-    rc = build_expression(db, default_table, tables, condition.right_expr, right);
-    if (rc != RC::SUCCESS) {
-      LOG_WARN("failed to build right expression");
-      delete left;
-      return rc;
+    if (!is_null_comp) {
+      rc = build_expression(db, default_table, tables, condition.right_expr, right);
+      if (rc != RC::SUCCESS) {
+        LOG_WARN("failed to build right expression");
+        delete left;
+        return rc;
+      }
     }
 
     rc = convert_date_literal(left, right);
@@ -142,6 +146,13 @@ RC FilterStmt::create_filter_unit(Db *db, Table *default_table, std::unordered_m
       delete left;
       delete right;
       return rc;
+    }
+    if (is_null_comp) {
+      filter_unit = new FilterUnit;
+      filter_unit->set_comp(comp);
+      filter_unit->set_left(left);
+      filter_unit->set_right(nullptr);
+      return RC::SUCCESS;
     }
     rc = convert_date_literal(right, left);
     if (rc != RC::SUCCESS) {

@@ -67,6 +67,13 @@ RC InsertStmt::create(Db *db, const Inserts &inserts, Stmt *&stmt)
       const FieldMeta *field_meta = table_meta.field(static_cast<int>(i) + sys_field_num);
       const AttrType field_type = field_meta->type();
       const AttrType value_type = values[value_offset + i].type;
+      if (values[value_offset + i].is_null) {
+        if (!field_meta->nullable()) {
+          LOG_WARN("field is not null. table=%s, field=%s", table_name, field_meta->name());
+          return RC::SCHEMA_FIELD_TYPE_MISMATCH;
+        }
+        continue;
+      }
       if (field_type == DATES && value_type == CHARS) {
         int date_value = 0;
         if (!parse_date(static_cast<const char *>(values[value_offset + i].data), date_value)) {
